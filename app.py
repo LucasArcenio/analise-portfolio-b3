@@ -129,13 +129,13 @@ SETORES = {
         "variaveis": [("Câmbio BRL/USD","Desvalorização 15%","Redução da volatilidade — exportadores ganham receita","AGRO3, SLCE3"),("Preço das Commodities","Queda de 15%","Aumento da volatilidade — margens comprimidas","SLCE3, SMTO3"),("El Niño / Clima","Seca severa","Aumento forte da volatilidade — quebra de safra","SLCE3, TTEN3")],
     },
     "Varejo": {
-        "tickers": ["MGLU3.SA","VIVA3.SA","SOMA3.SA","SBFG3.SA","LREN3.SA"],
-        "nomes":   {"MGLU3.SA":"Magazine Luiza","VIVA3.SA":"Vivara","SOMA3.SA":"Grupo Soma","SBFG3.SA":"SBF Group","LREN3.SA":"Lojas Renner"},
-        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — crédito mais barato, consumo sobe","MGLU3, LREN3"),("Desemprego","Alta de 1 p.p.","Aumento da volatilidade — queda no consumo discricionário","MGLU3, SOMA3"),("IPCA","Alta de 2 p.p.","Aumento — poder de compra reduzido, inadimplência sobe","LREN3, MGLU3")],
+        "tickers": ["MGLU3.SA","VIVA3.SA","ALPA4.SA","SBFG3.SA","LREN3.SA"],
+        "nomes":   {"MGLU3.SA":"Magazine Luiza","VIVA3.SA":"Vivara","ALPA4.SA":"Alpargatas","SBFG3.SA":"SBF Group","LREN3.SA":"Lojas Renner"},
+        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — crédito mais barato, consumo sobe","MGLU3, LREN3"),("Desemprego","Alta de 1 p.p.","Aumento da volatilidade — queda no consumo discricionário","MGLU3, ALPA4"),("IPCA","Alta de 2 p.p.","Aumento — poder de compra reduzido, inadimplência sobe","LREN3, MGLU3")],
     },
     "Saúde e Farmácias": {
-        "tickers": ["HAPV3.SA","RDOR3.SA","FLRY3.SA","PNVL3.SA","RAIA3.SA"],
-        "nomes":   {"HAPV3.SA":"Hapvida","RDOR3.SA":"Rede D'Or","FLRY3.SA":"Fleury","PNVL3.SA":"Dimed","RAIA3.SA":"Raia Drogasil"},
+        "tickers": ["HAPV3.SA","RDOR3.SA","FLRY3.SA","PNVL3.SA","RADL3.SA"],
+        "nomes":   {"HAPV3.SA":"Hapvida","RDOR3.SA":"Rede D'Or","FLRY3.SA":"Fleury","PNVL3.SA":"Dimed","RADL3.SA":"Raia Drogasil"},
         "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — custo de dívida de expansão cai","HAPV3, RDOR3"),("Regulação ANS","Reajuste limitado","Aumento da volatilidade — pressão em margens de planos","HAPV3"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — insumos e equipamentos médicos importados","RDOR3, FLRY3")],
     },
     "Tecnologia e Telecomunicações": {
@@ -154,9 +154,9 @@ SETORES = {
         "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — ativos regulados com dividendos sobem","SAPR11, CSMG3"),("Regulação ARSESP","Revisão tarifária negativa","Aumento da volatilidade — margem comprimida","SBSP3, CSMG3"),("Risco Hidrológico","Seca severa","Aumento — custos operacionais sobem","SAPR11, SBSP3")],
     },
     "Transportes e Logística": {
-        "tickers": ["RAIL3.SA","RDNI3.SA","GOL4.SA","AZUL4.SA","ECOR3.SA"],
-        "nomes":   {"RAIL3.SA":"Rumo","RDNI3.SA":"Rodonitro","GOL4.SA":"Gol","AZUL4.SA":"Azul","ECOR3.SA":"EcoRodovias"},
-        "variaveis": [("Preço do Querosene (QAV)","Alta de 30%","Aumento forte da volatilidade — custo operacional das aéreas","GOL4, AZUL4"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — dívida e leasing de aeronaves em USD","GOL4, AZUL4"),("Volume de Safra","Queda de 10%","Aumento — menos carga para ferrovias","RAIL3")],
+        "tickers": ["RAIL3.SA","TGMA3.SA","MOVI3.SA","AZUL3.SA","ECOR3.SA"],
+        "nomes":   {"RAIL3.SA":"Rumo","TGMA3.SA":"Tegma","MOVI3.SA":"Movida","AZUL3.SA":"Azul","ECOR3.SA":"EcoRodovias"},
+        "variaveis": [("Preço do Querosene (QAV)","Alta de 30%","Aumento forte da volatilidade — custo operacional das aéreas","AZUL3, MOVI3"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — dívida e leasing de aeronaves em USD","AZUL3"),("Volume de Safra","Queda de 10%","Aumento — menos carga para ferrovias","RAIL3, TGMA3")],
     },
 }
 
@@ -519,8 +519,13 @@ with st.spinner("Baixando dados..."):
     precos_raw = buscar_dados(tickers)
 
 precos_raw.columns = [nomes.get(c, c) for c in precos_raw.columns]
-nomes_ativos = [nomes[t] for t in tickers if nomes[t] in precos_raw.columns]
-precos       = precos_raw[nomes_ativos].dropna()
+# filtra só ativos com dados suficientes (≥ 80% dos dias)
+nomes_ativos = [
+    nomes[t] for t in tickers
+    if nomes[t] in precos_raw.columns
+    and precos_raw[nomes[t]].notna().mean() >= 0.8
+]
+precos = precos_raw[nomes_ativos].ffill().bfill().dropna(how="all")
 ibov_precos  = precos_raw["^BVSP"].dropna() if "^BVSP" in precos_raw.columns else precos_raw.iloc[:, -1].dropna()
 retornos     = precos.pct_change().dropna()
 ret_ibov     = ibov_precos.pct_change().dropna()

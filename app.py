@@ -23,8 +23,8 @@ def _img_b64(rel_path):
     except:
         return ""
 
-LOGO_B64        = _img_b64("assets/utah_logo.png")
-LOGO_SQUARE_B64 = _img_b64("assets/utah_logo_square.png")
+LOGO_B64        = _img_b64("assets/utah_logo_transparent.png")
+LOGO_SQUARE_B64 = _img_b64("assets/utah_logo_transparent.png")
 
 # ── Cores da marca Utah ───────────────────────────────────────────────────────
 UTAH_NAVY   = "#1e2d4a"
@@ -220,7 +220,7 @@ def calcular_rf(cdi_serie, idx):
 with st.sidebar:
     if LOGO_B64:
         st.markdown(
-            f'<div class="sidebar-logo"><img src="data:image/png;base64,{LOGO_B64}" style="width:160px;border-radius:8px"/></div>',
+            f'<div class="sidebar-logo"><img src="data:image/png;base64,{LOGO_B64}" style="width:160px"/></div>',
             unsafe_allow_html=True
         )
     else:
@@ -235,7 +235,7 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 if "Início" in modo:
     logo_html = (
-        f'<div class="hero-logo"><img src="data:image/png;base64,{LOGO_B64}" style="height:90px;border-radius:10px"/></div>'
+        f'<div class="hero-logo"><img src="data:image/png;base64,{LOGO_B64}" style="height:110px"/></div>'
         if LOGO_B64 else ""
     )
     st.markdown(f"""

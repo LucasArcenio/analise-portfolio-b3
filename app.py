@@ -211,6 +211,21 @@ def buscar_dados(tickers):
     raw = yf.download(tickers + ["^BVSP"], period="2y", auto_adjust=True, progress=False)
     return parse_close(raw)
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def buscar_info(ticker_sa):
+    try:
+        return yf.Ticker(ticker_sa).info or {}
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def buscar_financials(ticker_sa):
+    try:
+        t = yf.Ticker(ticker_sa)
+        return t.quarterly_financials, t.dividends
+    except Exception:
+        return None, None
+
 @st.cache_data(ttl=300, show_spinner=False)
 def cotacao_ao_vivo(ticker_sa):
     try:
@@ -320,9 +335,9 @@ if "Empresa" in modo:
             raw_ind = parse_close(_raw)
         except Exception as e:
             st.error(f"Erro ao buscar preços: {e}"); st.stop()
-        yf_ticker = yf.Ticker(ticker_sa)
-        info_yf   = yf_ticker.info or {}
-        vivo      = cotacao_ao_vivo(ticker_sa)
+        info_yf  = buscar_info(ticker_sa)
+        qfin, divs_raw = buscar_financials(ticker_sa)
+        vivo     = cotacao_ao_vivo(ticker_sa)
 
     if ticker_sa not in raw_ind.columns or raw_ind[ticker_sa].dropna().empty:
         st.error(f"Ticker **{ticker_input}** não encontrado. Verifique o código."); st.stop()
@@ -409,7 +424,6 @@ if "Empresa" in modo:
 
     st.markdown("**DRE Trimestral**")
     try:
-        qfin = yf_ticker.quarterly_financials
         if qfin is not None and not qfin.empty:
             mapa = {"Total Revenue":"Receita Líquida","EBITDA":"EBITDA","Net Income":"Lucro Líquido","Net Income Common Stockholders":"Lucro Líquido"}
             vistas = set(); sel = []
@@ -428,7 +442,7 @@ if "Empresa" in modo:
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     section("💰", "Histórico de Dividendos")
     try:
-        divs = yf_ticker.dividends
+        divs = divs_raw
         if divs is not None and len(divs) > 0:
             divs.index = divs.index.tz_convert(None) if divs.index.tz is not None else divs.index
             div_12m = divs[divs.index >= (divs.index[-1] - pd.DateOffset(years=1))].sum()

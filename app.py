@@ -455,8 +455,7 @@ if "Início" in modo:
     titulo_html = "" if LOGO_B64 else "<h1>Utah Research</h1>"
     st.markdown(f"""
     <div class="hero">
-        {logo_html}
-        {titulo_html}
+        {logo_html}{titulo_html}
         <div class="hero-divider"></div>
         <p>Pesquise fundamentos, desempenho histórico e análise de portfólio de qualquer empresa listada na Bolsa brasileira</p>
         <div>

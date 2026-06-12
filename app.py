@@ -213,6 +213,19 @@ def buscar_dados(tickers):
     raw = yf.download(tickers + ["^BVSP"], period="2y", auto_adjust=True, progress=False)
     return parse_close(raw)
 
+@st.cache_data(ttl=900, show_spinner=False)
+def buscar_ibov(period="3y"):
+    try:
+        raw = yf.download("^BVSP", period=period, auto_adjust=True, progress=False)
+        close = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        s = close.dropna()
+        s.index = pd.to_datetime(s.index).tz_localize(None)
+        return s
+    except Exception:
+        return None
+
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_brapi(ticker_sa):
     ticker = ticker_sa.replace(".SA", "")
@@ -781,6 +794,30 @@ if "Fundos" in modo:
     nomes_fundos = list(series.keys())
     cor_de = {n: PALETA[i % len(PALETA)] for i, n in enumerate(nomes_fundos)}
 
+    # ── Benchmarks (CDI / IBOVESPA) ────────────────────────────────────────────
+    cbm1, cbm2 = st.columns(2)
+    mostrar_cdi  = cbm1.checkbox("Comparar com CDI",       value=True)
+    mostrar_ibov = cbm2.checkbox("Comparar com IBOVESPA",  value=True)
+
+    idx = base.index
+    cdi_f = buscar_cdi(DATA_INICIO, DATA_FIM)
+    bench_norm, bench_ret, bench_serie = {}, {}, {}
+    if mostrar_cdi and cdi_f is not None and len(cdi_f) > 0:
+        fac = (1 + cdi_f.reindex(idx).ffill().bfill()).cumprod()
+        if fac.notna().sum() > 1:
+            bench_serie["CDI"] = fac
+            bench_norm["CDI"]  = fac / fac.iloc[0] * 100
+            bench_ret["CDI"]   = fac.iloc[-1] / fac.iloc[0] - 1
+    if mostrar_ibov:
+        ibov = buscar_ibov()
+        if ibov is not None and len(ibov) > 1:
+            ib = ibov.reindex(idx).ffill().bfill()
+            if ib.notna().sum() > 1:
+                bench_serie["IBOVESPA"] = ib
+                bench_norm["IBOVESPA"]  = ib / ib.iloc[0] * 100
+                bench_ret["IBOVESPA"]   = ib.iloc[-1] / ib.iloc[0] - 1
+    BENCH_COR = {"CDI": UTAH_WHITE, "IBOVESPA": "#fb923c"}
+
     # ── Gráfico: rentabilidade acumulada (base 100) ────────────────────────────
     section("📈", "Rentabilidade Acumulada")
     fig, ax = utah_fig(13, 5.5)
@@ -789,6 +826,9 @@ if "Fundos" in modo:
         if len(s) < 2: continue
         norm = s / s.iloc[0] * 100
         ax.plot(norm.index, norm.values, label=n[:34], color=cor_de[n], linewidth=2)
+    for bn, bs in bench_norm.items():
+        ax.plot(bs.index, bs.values, label=bn, color=BENCH_COR[bn],
+                linewidth=1.6, linestyle="--", alpha=0.9)
     ax.axhline(100, color=UTAH_SILVER, linewidth=0.8, alpha=0.5)
     ax.set_ylabel("Base 100", color=UTAH_SILVER)
     ax.set_title("Evolução da cota (normalizada)", fontsize=13, fontweight="bold", color=UTAH_WHITE)
@@ -797,7 +837,6 @@ if "Fundos" in modo:
 
     # ── Métricas comparativas ──────────────────────────────────────────────────
     section("📊", "Indicadores no Período")
-    cdi_f = buscar_cdi(DATA_INICIO, DATA_FIM)
     linhas, metr = [], {}
     for n in nomes_fundos:
         s = base[n].dropna()
@@ -812,6 +851,21 @@ if "Fundos" in modo:
         metr[n] = {"ret":r_acum, "anu":r_anu, "vol":vol, "sharpe":shp, "dd":mdd, "dias":len(s)}
         linhas.append({"Fundo":n[:38], "Retorno":pct(r_acum), "Anualizado":pct(r_anu),
                        "Volatilidade":pct(vol), "Sharpe":num(shp), "Máx. Queda":pct(mdd)})
+    # Linhas de benchmark
+    for bn, bs in bench_serie.items():
+        s = bs.dropna()
+        if len(s) < 2: continue
+        rd = s.pct_change().dropna()
+        r_acum = s.iloc[-1] / s.iloc[0] - 1
+        r_anu  = (1 + r_acum) ** (DIAS_UTEIS / max(len(rd), 1)) - 1
+        if bn == "CDI":
+            linhas.append({"Fundo":"▪ CDI (benchmark)", "Retorno":pct(r_acum), "Anualizado":pct(r_anu),
+                           "Volatilidade":"—", "Sharpe":"—", "Máx. Queda":"—"})
+        else:
+            rf = calcular_rf(cdi_f, rd.index)
+            linhas.append({"Fundo":f"▪ {bn} (benchmark)", "Retorno":pct(r_acum), "Anualizado":pct(r_anu),
+                           "Volatilidade":pct(vol_anual(rd)), "Sharpe":num(sharpe(rd, rf)),
+                           "Máx. Queda":pct(max_dd(rd))})
     st.dataframe(pd.DataFrame(linhas).set_index("Fundo"), use_container_width=True)
 
     # ── Comentário automático da comparação ────────────────────────────────────
@@ -849,12 +903,27 @@ if "Fundos" in modo:
         else:
             veredito = "Adicione um segundo fundo para gerar a comparação direta."
 
+        # Referência aos benchmarks
+        bench_txt = ""
+        if bench_ret:
+            refs = " · ".join(
+                f"<span style='color:{BENCH_COR[k]}'><b>{k}</b>: {pct(v)}</span>"
+                for k, v in bench_ret.items())
+            extra = ""
+            if "CDI" in bench_ret and melhor_ret in metr:
+                bateu = metr[melhor_ret]["ret"] > bench_ret["CDI"]
+                extra = (f" O fundo de maior retorno (<b style='color:{cor_de[melhor_ret]}'>{melhor_ret[:34]}</b>) "
+                         f"{'superou' if bateu else 'ficou abaixo do'} CDI no período.")
+            bench_txt = (f'<div style="border-top:1px solid {UTAH_NAVY3};padding-top:10px;margin-top:10px">'
+                         f'<b style="color:#94a3b8">Benchmarks no período:</b> {refs}.{extra}</div>')
+
         jan = f"{len(base.dropna())} pregões em comum" if periodo_comum else "histórico individual de cada fundo"
         st.markdown(
             f'<div style="background:#0f1c33;border:1px solid {UTAH_NAVY3};border-radius:12px;padding:18px 22px;color:#e2e8f0;line-height:1.55">'
             f'<div style="color:#94a3b8;font-size:0.8rem;margin-bottom:8px">Análise sobre {jan} · janela de {n_meses} meses</div>'
             f'<ul style="margin:0 0 12px;padding-left:18px">{"".join(partes)}</ul>'
             f'<div style="border-top:1px solid {UTAH_NAVY3};padding-top:10px"><b style="color:{UTAH_GOLD}">Leitura:</b> {veredito}</div>'
+            f'{bench_txt}'
             f'</div>', unsafe_allow_html=True)
 
         st.markdown(

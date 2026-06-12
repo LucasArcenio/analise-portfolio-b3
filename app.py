@@ -434,7 +434,7 @@ def historico_fundo(cnpji, n_meses):
 with st.sidebar:
     if LOGO_B64:
         st.markdown(
-            f'<div class="sidebar-logo"><img src="data:image/png;base64,{LOGO_B64}" style="width:160px"/></div>',
+            f'<div class="sidebar-logo"><img src="data:image/png;base64,{LOGO_B64}" style="width:140px"/></div>',
             unsafe_allow_html=True
         )
     else:
@@ -449,13 +449,14 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 if "Início" in modo:
     logo_html = (
-        f'<div class="hero-logo"><img src="data:image/png;base64,{LOGO_B64}" style="height:110px"/></div>'
+        f'<div class="hero-logo"><img src="data:image/png;base64,{LOGO_B64}" style="height:190px"/></div>'
         if LOGO_B64 else ""
     )
+    titulo_html = "" if LOGO_B64 else "<h1>Utah Research</h1>"
     st.markdown(f"""
     <div class="hero">
         {logo_html}
-        <h1>Utah Research</h1>
+        {titulo_html}
         <div class="hero-divider"></div>
         <p>Pesquise fundamentos, desempenho histórico e análise de portfólio de qualquer empresa listada na Bolsa brasileira</p>
         <div>

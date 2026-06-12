@@ -195,6 +195,89 @@ def num(v, dec=2):
     try:    return f"{float(v):.{dec}f}"
     except: return "—"
 
+# ── Modelo de pontuação Utah (recomendação própria, dados públicos) ───────────
+PERFIS_PESOS = {
+    "Equilibrado": {"val":0.25, "rent":0.25, "saude":0.20, "div":0.10, "mom":0.20},
+    "Valor":       {"val":0.40, "rent":0.20, "saude":0.25, "div":0.05, "mom":0.10},
+    "Dividendos":  {"val":0.20, "rent":0.20, "saude":0.20, "div":0.35, "mom":0.05},
+    "Crescimento": {"val":0.10, "rent":0.25, "saude":0.10, "div":0.05, "mom":0.50},
+}
+DIM_NOMES = {"val":"Valuation", "rent":"Rentabilidade", "saude":"Saúde Financeira",
+             "div":"Dividendos", "mom":"Momentum"}
+
+def _f(v):
+    try:
+        v = float(v)
+        return None if v != v else v
+    except (TypeError, ValueError):
+        return None
+
+def _score_banda(v, cortes, melhor="baixo"):
+    v = _f(v)
+    if v is None: return None
+    pts = [100, 75, 50, 25, 0] if melhor == "baixo" else [0, 25, 50, 75, 100]
+    for i, c in enumerate(cortes):
+        if v < c: return pts[i]
+    return pts[-1]
+
+def _avg(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+def scores_utah(info, mom):
+    """Sub-scores 0-100 por dimensão, a partir dos indicadores públicos já carregados."""
+    s = {}
+    # Valuation — mais barato melhor
+    vs = []
+    pl = _f(info.get("trailingPE"))
+    if pl is not None: vs.append(10 if pl <= 0 else _score_banda(pl, [8, 15, 22, 30], "baixo"))
+    pvp = _f(info.get("priceToBook"))
+    if pvp is not None: vs.append(10 if pvp <= 0 else _score_banda(pvp, [1, 2, 3.5, 6], "baixo"))
+    ev = _f(info.get("enterpriseToEbitda"))
+    if ev is not None and ev > 0: vs.append(_score_banda(ev, [5, 8, 12, 18], "baixo"))
+    s["val"] = _avg(vs)
+    # Rentabilidade — maior melhor
+    rent = []
+    for k, cortes in [("returnOnEquity", [0.05, 0.10, 0.15, 0.20]),
+                      ("profitMargins", [0.0, 0.05, 0.12, 0.20]),
+                      ("ebitdaMargins", [0.05, 0.12, 0.20, 0.30])]:
+        sc = _score_banda(info.get(k), cortes, "alto")
+        if sc is not None: rent.append(sc)
+    s["rent"] = _avg(rent)
+    # Saúde financeira — menos dívida e mais liquidez melhor
+    sau = []
+    dpl = _f(info.get("debtToEquity"))
+    if dpl is not None: sau.append(100 if dpl < 0 else _score_banda(dpl, [0.3, 0.8, 1.5, 2.5], "baixo"))
+    sc = _score_banda(info.get("currentRatio"), [1, 1.3, 1.8, 2.5], "alto")
+    if sc is not None: sau.append(sc)
+    s["saude"] = _avg(sau)
+    # Dividendos — maior yield melhor
+    dy = _f(info.get("dividendYield"))
+    if dy is not None:
+        dy = dy / 100 if dy > 1 else dy
+        s["div"] = _score_banda(dy, [0.03, 0.05, 0.07, 0.09], "alto")
+    else:
+        s["div"] = None
+    # Momentum — desempenho relativo ao IBOV
+    s["mom"] = _score_banda(mom, [-0.20, 0.0, 0.15, 0.30], "alto") if mom is not None else None
+    return s
+
+def composite_utah(s, perfil):
+    pesos = PERFIS_PESOS[perfil]
+    num_, den = 0.0, 0.0
+    for k, w in pesos.items():
+        if s.get(k) is not None:
+            num_ += s[k] * w; den += w
+    return (num_ / den) if den > 0 else None
+
+def classe_utah(comp):
+    if comp is None: return None, None
+    if comp >= 75: return "Compra Forte", "#16a34a"
+    if comp >= 60: return "Compra",       "#4ade80"
+    if comp >= 45: return "Neutro",       UTAH_GOLD
+    if comp >= 30: return "Venda",        "#f87171"
+    return "Venda Forte", "#dc2626"
+
 def section(icon, title):
     st.markdown(f'<div class="section-header"><span style="font-size:1.2rem">{icon}</span><h2>{title}</h2></div>', unsafe_allow_html=True)
 
@@ -707,46 +790,75 @@ if "Empresa" in modo:
     ax_h.legend(facecolor="#0f1c33", edgecolor=UTAH_LINE, labelcolor=UTAH_WHITE)
     plt.tight_layout(); st.pyplot(fig_h); plt.close()
 
-    # ── Recomendação de analistas (consenso de mercado) ────────────────────────
-    section("🎯", "Recomendação de Analistas")
-    rk    = (info.get("recommendationKey") or "").lower()
-    rm    = info.get("recommendationMean")
-    n_an  = info.get("numberOfAnalystOpinions")
-    alvo  = info.get("targetMeanPrice")
-    alvo_hi = info.get("targetHighPrice")
-    alvo_lo = info.get("targetLowPrice")
-    m = rm if rm else {"strong_buy":1.0,"buy":2.0,"hold":3.0,"sell":4.0,"strong_sell":5.0}.get(rk)
+    # ── Recomendação Utah (modelo quantitativo próprio) ────────────────────────
+    section("🎯", "Recomendação Utah")
+    perfil = st.radio("Perfil do modelo", list(PERFIS_PESOS.keys()),
+                      horizontal=True, key="perfil_utah")
 
-    if m and (alvo or rm):
-        if   m <= 1.5: rlabel, rcor = "Compra Forte", "#16a34a"
-        elif m <= 2.5: rlabel, rcor = "Compra",       "#4ade80"
-        elif m <= 3.5: rlabel, rcor = "Neutro",       UTAH_GOLD
-        elif m <= 4.5: rlabel, rcor = "Venda",        "#f87171"
-        else:          rlabel, rcor = "Venda Forte",  "#dc2626"
-        pos = max(0.0, min(100.0, (m - 1) / 4 * 100))
-        upside = (alvo / cotacao_atual - 1) * 100 if (alvo and cotacao_atual) else None
+    # Momentum relativo ao IBOV e risco por volatilidade
+    try:
+        r_acao = preco_ind.iloc[-1] / preco_ind.iloc[0] - 1
+        r_ibov = (preco_ibov.iloc[-1] / preco_ibov.iloc[0] - 1) if (preco_ibov is not None and len(preco_ibov) > 1) else 0.0
+        mom = r_acao - r_ibov
+    except Exception:
+        mom = None
+    vol_an = vol_anual(ret_ind)
+    s    = scores_utah(info, mom)
+    comp = composite_utah(s, perfil)
+    clabel, ccor = classe_utah(comp)
 
+    risco = min(100, round(vol_an * 100)) if (vol_an and vol_an == vol_an) else None
+    if   risco is None: risco_lab, risco_cor = "—",     "#64748b"
+    elif risco < 15:    risco_lab, risco_cor = "Baixo", "#c9a84c"
+    elif risco < 30:    risco_lab, risco_cor = "Médio", "#e88c30"
+    else:               risco_lab, risco_cor = "Alto",  "#dc2626"
+
+    if comp is not None:
+        barras = ""
+        for k in ["val", "rent", "saude", "div", "mom"]:
+            sc = s.get(k)
+            if sc is None:
+                barras += (f'<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+                           f'<span style="width:140px;color:#94a3b8;font-size:0.8rem">{DIM_NOMES[k]}</span>'
+                           f'<span style="color:#475569;font-size:0.78rem">sem dado</span></div>')
+            else:
+                cor = "#4ade80" if sc >= 60 else (UTAH_GOLD if sc >= 45 else "#f87171")
+                barras += (f'<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+                           f'<span style="width:140px;color:#94a3b8;font-size:0.8rem">{DIM_NOMES[k]}</span>'
+                           f'<div style="flex:1;height:8px;background:#1e2d4a;border-radius:4px;overflow:hidden">'
+                           f'<div style="width:{sc:.0f}%;height:100%;background:{cor}"></div></div>'
+                           f'<span style="width:30px;text-align:right;color:#e2e8f0;font-size:0.78rem">{sc:.0f}</span></div>')
         st.markdown(
-            f'<div style="background:#0f1c33;border:1px solid {UTAH_NAVY3};border-radius:12px;padding:18px 22px;margin-bottom:8px">'
-            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
-            f'<span style="background:{rcor};color:#0f1c33;font-weight:800;padding:4px 14px;border-radius:20px;font-size:1.05rem">{rlabel}</span>'
-            f'<span style="color:#94a3b8;font-size:0.85rem">consenso de {n_an or "—"} analistas · nota média {m:.2f} <span style="color:#475569">(1 = compra forte · 5 = venda forte)</span></span>'
+            f'<div style="background:#0f1c33;border:1px solid {UTAH_NAVY3};border-radius:12px;padding:18px 22px;margin-bottom:10px">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px">'
+            f'<div style="display:flex;align-items:center;gap:12px">'
+            f'<span style="background:{ccor};color:#0f1c33;font-weight:800;padding:5px 16px;border-radius:20px;font-size:1.1rem">{clabel}</span>'
+            f'<span style="color:#94a3b8;font-size:0.85rem">Score Utah <b style="color:#f8fafc;font-size:1.05rem">{comp:.0f}</b>/100 · perfil {perfil}</span>'
             f'</div>'
-            f'<div style="position:relative;height:13px;border-radius:7px;background:linear-gradient(90deg,#16a34a,#4ade80,#c9a84c,#f87171,#dc2626)">'
-            f'<div style="position:absolute;left:{pos}%;top:-7px;transform:translateX(-50%);font-size:1rem;color:#f8fafc">▼</div>'
-            f'</div>'
-            f'<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:#64748b;margin-top:4px">'
-            f'<span>Compra Forte</span><span>Compra</span><span>Neutro</span><span>Venda</span><span>Venda Forte</span>'
-            f'</div></div>', unsafe_allow_html=True)
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Preço-alvo médio", f"R$ {alvo:.2f}" if alvo else "—")
-        c2.metric("Potencial vs. atual", f"{upside:+.1f}%" if upside is not None else "—")
-        c3.metric("Faixa de alvo", f"R$ {alvo_lo:.2f} – {alvo_hi:.2f}" if (alvo_lo and alvo_hi) else "—")
-        c4.metric("Analistas", str(n_an) if n_an else "—")
-        st.markdown('<div style="font-size:0.75rem;color:#64748b;margin-top:6px">Consenso de mercado — agrega diversas casas de análise, incluindo a XP. Fonte: dados públicos (Yahoo Finance). Não constitui recomendação de investimento da Utah.</div>', unsafe_allow_html=True)
+            f'<div style="text-align:right"><div style="color:#64748b;font-size:0.72rem">Risco (0–100)</div>'
+            f'<span style="background:{risco_cor};color:#0f1c33;font-weight:800;padding:2px 12px;border-radius:6px;font-size:1rem">{risco} · {risco_lab}</span></div>'
+            f'</div>{barras}</div>', unsafe_allow_html=True)
     else:
-        st.info("Sem cobertura de analistas disponível para este ticker no momento.")
+        st.info("Dados fundamentalistas insuficientes para gerar o Score Utah deste ticker.")
+
+    # Referência: consenso de mercado (para comparar com a visão Utah)
+    rk  = (info.get("recommendationKey") or "").lower()
+    rmn = info.get("recommendationMean")
+    nan_= info.get("numberOfAnalystOpinions")
+    alvo= info.get("targetMeanPrice")
+    mm  = rmn if rmn else {"strong_buy":1.0,"buy":2.0,"hold":3.0,"sell":4.0,"strong_sell":5.0}.get(rk)
+    if mm and (alvo or rmn):
+        cl = ("Compra Forte" if mm <= 1.5 else "Compra" if mm <= 2.5 else
+              "Neutro" if mm <= 3.5 else "Venda" if mm <= 4.5 else "Venda Forte")
+        ref = f"Consenso de mercado: <b>{cl}</b>"
+        if nan_: ref += f" · {nan_} analistas"
+        if alvo:
+            ref += f" · alvo R$ {alvo:.2f}"
+            ups = (alvo / cotacao_atual - 1) * 100 if cotacao_atual else None
+            if ups is not None: ref += f" ({ups:+.1f}%)"
+        st.markdown(f'<div style="font-size:0.82rem;color:#94a3b8;margin:2px 0 6px">📊 {ref} <span style="color:#475569">(referência — agrega diversas casas, incl. XP)</span></div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="font-size:0.74rem;color:#64748b;margin-top:4px">Score Utah — indicador quantitativo objetivo calculado a partir de dados públicos (fundamentos e preços). Caráter educacional; não é recomendação personalizada de investimento. Rentabilidade passada não garante resultados futuros.</div>', unsafe_allow_html=True)
 
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fontes: Yahoo Finance · BCB · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
     st.stop()

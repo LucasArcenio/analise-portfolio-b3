@@ -13,7 +13,14 @@ import streamlit as st
 from datetime import date, timedelta
 from pathlib import Path
 
-st.set_page_config(page_title="Utah Research", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+def _page_icon():
+    try:
+        from PIL import Image
+        return Image.open(Path(__file__).parent / "assets/utah_favicon.png")
+    except Exception:
+        return "📊"
+
+st.set_page_config(page_title="Utah Research", page_icon=_page_icon(), layout="wide", initial_sidebar_state="expanded")
 
 BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "")
 

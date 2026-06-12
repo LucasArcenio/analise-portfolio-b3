@@ -24,6 +24,8 @@ st.set_page_config(page_title="Utah Research", page_icon=_page_icon(), layout="w
 
 BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "")
 
+import indicadores
+
 # ── Logo em base64 ────────────────────────────────────────────────────────────
 def _img_b64(rel_path):
     try:
@@ -573,7 +575,7 @@ with st.sidebar:
     else:
         st.markdown('<p style="color:#f8fafc;font-weight:700;text-align:center;letter-spacing:0.1em">UTAH INVESTIMENTOS</p>', unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#2d3f63;margin:0 0 16px'>", unsafe_allow_html=True)
-    modo = st.radio("", ["🏠  Início", "🔍  Empresa", "📂  Setor", "💰  Fundos"], label_visibility="collapsed")
+    modo = st.radio("", ["🏠  Início", "🔍  Empresa", "📂  Setor", "💰  Fundos", "📊  Indicadores"], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
     st.markdown("<small style='color:#64748b'>Dados: Yahoo Finance · BCB<br>Cotações com delay de 15 min</small>", unsafe_allow_html=True)
 
@@ -628,6 +630,10 @@ f"""<style>
     ]
     for col, (icon, titulo, desc) in zip([c1, c2, c3], cards):
         col.markdown(f'<div class="feat-card"><div style="font-size:1.8rem">{icon}</div><h3>{titulo}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
+
+    # ── Indicadores de Mercado (painel HG Brasil) ──────────────────────────────
+    section("📊", "Indicadores de Mercado")
+    indicadores.render_indicadores(autorefresh=False)
 
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Dados com fins educacionais · Não constitui recomendação de investimento<br><span style="font-size:0.72rem;color:#475569">Atualizado em {DATA_FIM}</span></div>', unsafe_allow_html=True)
     st.stop()
@@ -916,6 +922,15 @@ if "Empresa" in modo:
     st.markdown('<div style="font-size:0.74rem;color:#64748b;margin-top:4px">Score Utah — indicador quantitativo objetivo calculado a partir de dados públicos (fundamentos e preços). Caráter educacional; não é recomendação personalizada de investimento. Rentabilidade passada não garante resultados futuros.</div>', unsafe_allow_html=True)
 
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fontes: Yahoo Finance · BCB · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
+    st.stop()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INDICADORES DE MERCADO
+# ══════════════════════════════════════════════════════════════════════════════
+if "Indicadores" in modo:
+    st.markdown(f'<div style="margin-bottom:8px"><h1 style="color:{UTAH_WHITE};font-size:1.9rem;font-weight:700;margin:0 0 4px;font-family:\'Playfair Display\',serif">Indicadores de Mercado</h1><p style="color:{UTAH_SILVER};margin:0;font-size:0.9rem">Brasil · Internacional · Cripto · atualização automática a cada 60s</p></div>', unsafe_allow_html=True)
+    indicadores.render_indicadores(autorefresh=True)
+    st.markdown('<div class="utah-footer">Utah Investimentos · Parceiro XP · Fonte: HG Brasil · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════

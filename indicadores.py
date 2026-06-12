@@ -90,7 +90,7 @@ def render_indicadores(autorefresh=False):
         return
 
     if not resp.get("valid_key"):
-        st.info("🔑 Chave HG Brasil não configurada — Selic, CDI e Bitcoin ficam indisponíveis. "
+        st.info("Chave HG Brasil não configurada — Selic, CDI e Bitcoin ficam indisponíveis. "
                 "Adicione `HG_KEY` em Settings → Secrets no Streamlit Cloud para liberar todos os indicadores.")
 
     st.markdown(IND_CSS, unsafe_allow_html=True)
@@ -109,7 +109,7 @@ def render_indicadores(autorefresh=False):
         return m.get("buy"), m.get("variation")
 
     # ── Mercado Brasileiro ────────────────────────────────────────────────────
-    _secao("🇧🇷 Mercado Brasileiro")
+    _secao("Mercado Brasileiro")
     ibov_p, ibov_v = stk("IBOVESPA")
     ifix_p, ifix_v = stk("IFIX")
     usd_p, usd_v   = moe("USD")
@@ -124,7 +124,7 @@ def render_indicadores(autorefresh=False):
     ])
 
     # ── Internacional ─────────────────────────────────────────────────────────
-    _secao("🌎 Internacional")
+    _secao("Internacional")
     nas_p, nas_v = stk("NASDAQ")
     dow_p, dow_v = stk("DOWJONES")
     cac_p, cac_v = stk("CAC")
@@ -137,7 +137,7 @@ def render_indicadores(autorefresh=False):
     ])
 
     # ── Cripto ────────────────────────────────────────────────────────────────
-    _secao("₿ Cripto")
+    _secao("Cripto")
     btc_usd = btc.get("blockchain_info") or btc.get("bitstamp") or {}
     btc_brl = btc.get("mercadobitcoin") or btc.get("foxbit") or {}
     _grid_cards([

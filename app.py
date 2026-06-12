@@ -82,7 +82,7 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; background-color
 .sidebar-logo {{ text-align: center; padding: 8px 0 16px 0; }}
 .utah-footer {{ color: {UTAH_SILVER}; font-size: 0.78rem; text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid {UTAH_LINE}; line-height: 1.8; }}
 .rec-box {{ background: linear-gradient(135deg, #0f1c33, {UTAH_NAVY2}); border: 1px solid {UTAH_LINE}; border-left: 4px solid {UTAH_GOLD}; border-radius: 12px; padding: 28px 32px; line-height: 1.85; }}
-.wa-wrap {{ position: fixed; bottom: 28px; right: 28px; z-index: 9999; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }}
+.wa-wrap {{ position: fixed; bottom: 100px; right: 28px; z-index: 9999; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }}
 .wa-tooltip {{ background: #fff; color: #111; border-radius: 12px; padding: 12px 16px; font-size: 13px; line-height: 1.5; max-width: 210px; box-shadow: 0 8px 28px rgba(0,0,0,0.22); display: none; }}
 .wa-tooltip strong {{ color: #128C7E; display: block; margin-bottom: 3px; font-size: 13px; }}
 .wa-tooltip::after {{ content: ''; position: absolute; bottom: -6px; right: 26px; width: 12px; height: 12px; background: #fff; transform: rotate(45deg); }}
@@ -281,7 +281,7 @@ def classe_utah(comp):
     return "Venda Forte", "#dc2626"
 
 def section(icon, title):
-    st.markdown(f'<div class="section-header"><span style="font-size:1.2rem">{icon}</span><h2>{title}</h2></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header"><h2>{title}</h2></div>', unsafe_allow_html=True)
 
 def utah_fig(w=12, h=5):
     fig, ax = plt.subplots(figsize=(w, h))
@@ -575,7 +575,7 @@ with st.sidebar:
     else:
         st.markdown('<p style="color:#f8fafc;font-weight:700;text-align:center;letter-spacing:0.1em">UTAH INVESTIMENTOS</p>', unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#2d3f63;margin:0 0 16px'>", unsafe_allow_html=True)
-    modo = st.radio("", ["🏠  Início", "🔍  Empresa", "📂  Setor", "💰  Fundos", "📊  Indicadores"], label_visibility="collapsed")
+    modo = st.radio("", ["Início", "Empresa", "Setor", "Fundos", "Indicadores"], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
     st.markdown("<small style='color:#64748b'>Dados: Yahoo Finance · BCB<br>Cotações com delay de 15 min</small>", unsafe_allow_html=True)
 
@@ -624,12 +624,12 @@ f"""<style>
 
     c1, c2, c3 = st.columns(3)
     cards = [
-        ("🔍", "Empresa Individual", "Digite qualquer ticker da B3 e acesse indicadores fundamentalistas, balanço trimestral, histórico de dividendos e análise técnica completa."),
-        ("📂", "Análise por Setor",  "Escolha um dos 10 setores, compare portfólios, analise correlação, volatilidade e desempenho histórico com benchmark IBOVESPA."),
-        ("💰", "Comparador de Fundos", "Busque fundos por nome ou CNPJ, compare quantos quiser no mesmo gráfico de rentabilidade e receba uma leitura automática da comparação. Dados oficiais da CVM."),
+        ("Empresa Individual", "Digite qualquer ticker da B3 e acesse indicadores fundamentalistas, balanço trimestral, histórico de dividendos e análise técnica completa."),
+        ("Análise por Setor",  "Escolha um dos 10 setores, compare portfólios, analise correlação, volatilidade e desempenho histórico com benchmark IBOVESPA."),
+        ("Comparador de Fundos", "Busque fundos por nome ou CNPJ, compare quantos quiser no mesmo gráfico de rentabilidade e receba uma leitura automática da comparação. Dados oficiais da CVM."),
     ]
-    for col, (icon, titulo, desc) in zip([c1, c2, c3], cards):
-        col.markdown(f'<div class="feat-card"><div style="font-size:1.8rem">{icon}</div><h3>{titulo}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
+    for col, (titulo, desc) in zip([c1, c2, c3], cards):
+        col.markdown(f'<div class="feat-card"><h3>{titulo}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
 
     # ── Indicadores de Mercado (painel HG Brasil) ──────────────────────────────
     section("📊", "Indicadores de Mercado")
@@ -647,7 +647,7 @@ if "Empresa" in modo:
     ticker_input = st.text_input("", placeholder="Digite o ticker — ex: PETR4, VALE3, ITUB4...", label_visibility="collapsed").strip().upper()
 
     if not ticker_input:
-        st.markdown('<div class="info-box">💡 <strong>Exemplos:</strong> PETR4 (Petrobras), VALE3 (Vale), ITUB4 (Itaú), WEGE3 (WEG), BBDC4 (Bradesco), MGLU3 (Magazine Luiza)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box"><strong>Exemplos:</strong> PETR4 (Petrobras), VALE3 (Vale), ITUB4 (Itaú), WEGE3 (WEG), BBDC4 (Bradesco), MGLU3 (Magazine Luiza)</div>', unsafe_allow_html=True)
         st.stop()
 
     ticker_sa = ticker_input if ticker_input.endswith(".SA") else ticker_input + ".SA"
@@ -917,7 +917,15 @@ if "Empresa" in modo:
             ref += f" · alvo R$ {alvo:.2f}"
             ups = (alvo / cotacao_atual - 1) * 100 if cotacao_atual else None
             if ups is not None: ref += f" ({ups:+.1f}%)"
-        st.markdown(f'<div style="font-size:0.82rem;color:#94a3b8;margin:2px 0 6px">📊 {ref} <span style="color:#475569">(referência — agrega diversas casas, incl. XP)</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.82rem;color:#94a3b8;margin:2px 0 6px">{ref} <span style="color:#475569">(referência — agrega diversas casas, incl. XP)</span></div>', unsafe_allow_html=True)
+
+    ticker_xp = ticker_input.split(".")[0].strip().lower()
+    st.markdown(
+        f'<a href="https://conteudos.xpi.com.br/acoes/{ticker_xp}/" target="_blank" '
+        f'style="display:inline-block;background:{UTAH_GOLD};color:#0f1c33;font-weight:700;'
+        f'padding:9px 20px;border-radius:8px;text-decoration:none;font-size:0.86rem;margin:8px 0 2px">'
+        f'Ver análise completa da XP &rarr;</a>',
+        unsafe_allow_html=True)
 
     st.markdown('<div style="font-size:0.74rem;color:#64748b;margin-top:4px">Score Utah — indicador quantitativo objetivo calculado a partir de dados públicos (fundamentos e preços). Caráter educacional; não é recomendação personalizada de investimento. Rentabilidade passada não garante resultados futuros.</div>', unsafe_allow_html=True)
 
@@ -953,7 +961,7 @@ if "Fundos" in modo:
 
     # ── Busca ──────────────────────────────────────────────────────────────────
     cbusca, cjanela = st.columns([3, 1])
-    termo = cbusca.text_input("🔎 Buscar fundo", placeholder="Nome do fundo ou CNPJ (ex.: Alaska, Verde, 12.987.743/0001-86)")
+    termo = cbusca.text_input("Buscar fundo", placeholder="Nome do fundo ou CNPJ (ex.: Alaska, Verde, 12.987.743/0001-86)")
     n_meses = {"6 meses":6, "12 meses":12, "24 meses":24, "36 meses":36}[
         cjanela.selectbox("Histórico", ["6 meses","12 meses","24 meses","36 meses"], index=1)]
 
@@ -969,7 +977,7 @@ if "Fundos" in modo:
         else:
             opcoes = {f"{r['nome']}  ·  {fmt_cnpj(r['cnpj'])}": r for _, r in res.iterrows()}
             esc = st.selectbox(f"{len(res)} resultado(s) — selecione para adicionar:", list(opcoes.keys()))
-            if st.button("➕ Adicionar à comparação"):
+            if st.button("Adicionar à comparação"):
                 r = opcoes[esc]
                 ja = any(f["cnpji"] == r["cnpji"] for f in st.session_state["fundos_sel"])
                 if not ja:
@@ -992,10 +1000,10 @@ if "Fundos" in modo:
         with cols[i % len(cols)]:
             cor = PALETA[i % len(PALETA)]
             st.markdown(f'<div style="border-left:4px solid {cor};background:#0f1c33;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:0.8rem;color:#f8fafc">{f["nome"][:42]}<br><span style="color:#64748b">{fmt_cnpj(f["cnpj"])}</span></div>', unsafe_allow_html=True)
-            if st.button("✕ remover", key=f"rm_{f['cnpji']}"):
+            if st.button("Remover", key=f"rm_{f['cnpji']}"):
                 st.session_state["fundos_sel"] = [x for x in sel if x["cnpji"] != f["cnpji"]]
                 st.rerun()
-    if st.button("🗑️ Limpar tudo"):
+    if st.button("Limpar tudo"):
         st.session_state["fundos_sel"] = []; st.rerun()
 
     # ── Carregar histórico de cada fundo ───────────────────────────────────────
@@ -1157,7 +1165,7 @@ if "Fundos" in modo:
             f'</div>', unsafe_allow_html=True)
 
         st.markdown(
-            f'<div style="font-size:0.78rem;color:#64748b;margin-top:10px">⚠️ Análise baseada exclusivamente no desempenho histórico do período selecionado. '
+            f'<div style="font-size:0.78rem;color:#64748b;margin-top:10px">Análise baseada exclusivamente no desempenho histórico do período selecionado. '
             f'Rentabilidade passada não garante resultados futuros e não considera tributação, liquidez ou perfil do investidor. '
             f'Não constitui recomendação de investimento — consulte seu assessor Utah.</div>', unsafe_allow_html=True)
 
@@ -1172,7 +1180,7 @@ info_setor = SETORES[setor_escolhido]
 tickers    = info_setor["tickers"]
 nomes      = info_setor["nomes"]
 
-st.markdown(f'<div class="setor-title"><h2>📂 {setor_escolhido}</h2><p>Análise de portfólio · últimos 2 anos · {DATA_FIM} · Benchmark: IBOVESPA</p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="setor-title"><h2>{setor_escolhido}</h2><p>Análise de portfólio · últimos 2 anos · {DATA_FIM} · Benchmark: IBOVESPA</p></div>', unsafe_allow_html=True)
 
 with st.spinner("Baixando dados..."):
     precos_raw = buscar_dados(tickers)

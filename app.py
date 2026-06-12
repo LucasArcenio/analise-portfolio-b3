@@ -114,9 +114,9 @@ SETORES = {
         "variaveis": [("Taxa Selic","Queda de 2 p.p.","Aumento da volatilidade — pressão em margens de bancos","ITUB4, BBDC4"),("Inadimplência","Alta de 1 p.p.","Aumento da volatilidade — provisões sobem","BBDC4, SANB11"),("Câmbio BRL/USD","Desvalorização 15%","Leve aumento — impacto em carteiras dolarizadas","ITUB4")],
     },
     "Energia Elétrica": {
-        "tickers": ["ELET3.SA","CPFE3.SA","ENGI11.SA","TAEE11.SA","CMIG4.SA"],
-        "nomes":   {"ELET3.SA":"Eletrobras","CPFE3.SA":"CPFL","ENGI11.SA":"Energisa","TAEE11.SA":"Taesa","CMIG4.SA":"Cemig"},
-        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — setor de dividendos se valoriza","TAEE11, CMIG4"),("Nível dos Reservatórios","Abaixo de 30%","Aumento da volatilidade — risco hídrico","ELET3, CMIG4"),("Regulação Aneel","Revisão tarifária","Aumento da volatilidade — incerteza nas margens","ENGI11, CPFE3")],
+        "tickers": ["EQTL3.SA","CPFE3.SA","ENGI11.SA","TAEE11.SA","CMIG4.SA"],
+        "nomes":   {"EQTL3.SA":"Equatorial","CPFE3.SA":"CPFL","ENGI11.SA":"Energisa","TAEE11.SA":"Taesa","CMIG4.SA":"Cemig"},
+        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — setor de dividendos se valoriza","TAEE11, CMIG4"),("Nível dos Reservatórios","Abaixo de 30%","Aumento da volatilidade — risco hídrico","EQTL3, CMIG4"),("Regulação Aneel","Revisão tarifária","Aumento da volatilidade — incerteza nas margens","ENGI11, CPFE3")],
     },
     "Petróleo e Gás": {
         "tickers": ["PETR4.SA","PETR3.SA","PRIO3.SA","RECV3.SA","UGPA3.SA"],
@@ -139,9 +139,9 @@ SETORES = {
         "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — custo de dívida de expansão cai","HAPV3, RDOR3"),("Regulação ANS","Reajuste limitado","Aumento da volatilidade — pressão em margens de planos","HAPV3"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — insumos e equipamentos médicos importados","RDOR3, FLRY3")],
     },
     "Tecnologia e Telecomunicações": {
-        "tickers": ["TOTVS3.SA","INTB3.SA","POSI3.SA","VIVO3.SA","TIMS3.SA","LWSA3.SA"],
-        "nomes":   {"TOTVS3.SA":"TOTVS","INTB3.SA":"Intelbras","POSI3.SA":"Positivo","VIVO3.SA":"Vivo","TIMS3.SA":"TIM","LWSA3.SA":"Locaweb"},
-        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — valuation de crescimento melhora","TOTVS3, LWSA3"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — componentes importados encarecem","INTB3, POSI3"),("PIB","Desaceleração 1 p.p.","Aumento — empresas reduzem TI; telecom é mais resiliente","TOTVS3, LWSA3")],
+        "tickers": ["TOTS3.SA","INTB3.SA","POSI3.SA","VIVT3.SA","TIMS3.SA","LWSA3.SA"],
+        "nomes":   {"TOTS3.SA":"TOTVS","INTB3.SA":"Intelbras","POSI3.SA":"Positivo","VIVT3.SA":"Vivo","TIMS3.SA":"TIM","LWSA3.SA":"Locaweb"},
+        "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — valuation de crescimento melhora","TOTS3, LWSA3"),("Câmbio BRL/USD","Desvalorização 15%","Aumento — componentes importados encarecem","INTB3, POSI3"),("PIB","Desaceleração 1 p.p.","Aumento — empresas reduzem TI; telecom é mais resiliente","TOTS3, LWSA3")],
     },
     "Mineração": {
         "tickers": ["VALE3.SA","CMIN3.SA","CBAV3.SA","BRAP4.SA","FESA4.SA"],
@@ -149,8 +149,8 @@ SETORES = {
         "variaveis": [("Preço do Minério de Ferro","Queda de 20%","Aumento forte da volatilidade — receitas caem","VALE3, CMIN3"),("Câmbio BRL/USD","Desvalorização 15%","Redução — exportações em USD","VALE3, CMIN3"),("Demanda China","Desaceleração 2 p.p.","Aumento da volatilidade — China consome ~70% do minério","VALE3, BRAP4")],
     },
     "Saneamento e Infraestrutura": {
-        "tickers": ["SAPR11.SA","SBSP3.SA","CSMG3.SA","EGIE3.SA","CCRO3.SA"],
-        "nomes":   {"SAPR11.SA":"Sanepar","SBSP3.SA":"Sabesp","CSMG3.SA":"Copasa","EGIE3.SA":"Engie","CCRO3.SA":"CCR"},
+        "tickers": ["SAPR11.SA","SBSP3.SA","CSMG3.SA","EGIE3.SA","SIMH3.SA"],
+        "nomes":   {"SAPR11.SA":"Sanepar","SBSP3.SA":"Sabesp","CSMG3.SA":"Copasa","EGIE3.SA":"Engie","SIMH3.SA":"Simpar"},
         "variaveis": [("Taxa Selic","Queda de 2 p.p.","Redução da volatilidade — ativos regulados com dividendos sobem","SAPR11, CSMG3"),("Regulação ARSESP","Revisão tarifária negativa","Aumento da volatilidade — margem comprimida","SBSP3, CSMG3"),("Risco Hidrológico","Seca severa","Aumento — custos operacionais sobem","SAPR11, SBSP3")],
     },
     "Transportes e Logística": {

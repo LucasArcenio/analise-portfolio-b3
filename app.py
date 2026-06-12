@@ -227,11 +227,63 @@ def buscar_brapi(ticker_sa):
 def _brapi_info(d):
     if not d: return {}
     return {
-        "shortName":  d.get("shortName"),
-        "longName":   d.get("longName"),
-        "trailingPE": d.get("priceEarnings"),
+        "shortName":   d.get("shortName"),
+        "longName":    d.get("longName"),
+        "trailingPE":  d.get("priceEarnings"),
         "trailingEps": d.get("earningsPerShare"),
-        "marketCap":  d.get("marketCap"),
+        "marketCap":   d.get("marketCap"),
+    }
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_fundamentus(ticker_sa):
+    try:
+        import fundamentus
+        ticker = ticker_sa.replace(".SA", "")
+        return fundamentus.get_papel(ticker).iloc[0].to_dict()
+    except Exception:
+        return {}
+
+def _fval(d, key):
+    v = d.get(key)
+    if v is None: return None
+    try:
+        s = str(v).strip()
+        if not s or s == "-": return None
+        if s.endswith("%"):
+            return float(s[:-1]) / 100
+        return float(s) / 100  # '2242' → 22.42, '183' → 1.83
+    except Exception:
+        return None
+
+def _fabs(d, key):
+    v = d.get(key)
+    if v is None: return None
+    try: return float(str(v).strip())
+    except: return None
+
+def _fundamentus_para_info(d):
+    if not d: return {}
+    return {
+        "trailingPE":         _fval(d, "PL"),
+        "priceToBook":        _fval(d, "PVP"),
+        "enterpriseToEbitda": _fval(d, "EV_EBITDA"),
+        "dividendYield":      _fval(d, "Div_Yield"),
+        "trailingEps":        _fval(d, "LPA"),
+        "bookValue":          _fval(d, "VPA"),
+        "returnOnEquity":     _fval(d, "ROE"),
+        "returnOnAssets":     _fval(d, "EBIT_Ativo"),
+        "profitMargins":      _fval(d, "Marg_Liquida"),
+        "ebitdaMargins":      _fval(d, "Marg_EBIT"),
+        "grossMargins":       _fval(d, "Marg_Bruta"),
+        "debtToEquity":       _fval(d, "Div_Liq_Patrim"),
+        "currentRatio":       _fval(d, "Liquidez_Corr"),
+        "revenueGrowth":      _fval(d, "Cres_Rec_5a"),
+        "marketCap":          _fabs(d, "Valor_de_mercado"),
+        "totalRevenue":       _fabs(d, "Receita_Liquida_12m"),
+        "ebitda":             _fabs(d, "EBIT_12m"),
+        "netIncomeToCommon":  _fabs(d, "Lucro_Liquido_12m"),
+        "totalDebt":          _fabs(d, "Div_Bruta"),
+        "totalCash":          _fabs(d, "Disponibilidades"),
     }
 
 def _brapi_cotacao(d):
@@ -372,11 +424,17 @@ if "Empresa" in modo:
             raw_ind = parse_close(_raw)
         except Exception as e:
             st.error(f"Erro ao buscar preços: {e}"); st.stop()
-        brapi_raw = buscar_brapi(ticker_sa)
+        brapi_raw    = buscar_brapi(ticker_sa)
         brapi_info_d = _brapi_info(brapi_raw)
-        info_yf  = buscar_info(ticker_sa)
-        # Merge: Brapi values take precedence when non-None
-        info = {**info_yf, **{k: v for k, v in brapi_info_d.items() if v is not None}}
+        info_yf      = buscar_info(ticker_sa)
+        fund_raw     = buscar_fundamentus(ticker_sa)
+        fund_info    = _fundamentus_para_info(fund_raw)
+        # Merge: yfinance base → brapi overrides → fundamentus overrides (most reliable for BR stocks)
+        info = {
+            **info_yf,
+            **{k: v for k, v in brapi_info_d.items() if v is not None},
+            **{k: v for k, v in fund_info.items()    if v is not None},
+        }
         qfin, divs_raw = buscar_financials(ticker_sa)
         vivo_brapi = _brapi_cotacao(brapi_raw)
         vivo_yf    = cotacao_ao_vivo(ticker_sa)

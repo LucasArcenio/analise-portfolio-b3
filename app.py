@@ -347,6 +347,76 @@ def calcular_rf(cdi_serie, idx):
             return al.mean()
     return (1 + CDI_FALLBACK) ** (1 / DIAS_UTEIS) - 1
 
+# ── Fundos de Investimento (dados abertos CVM) ────────────────────────────────
+import io, zipfile, re
+
+def so_digitos(s):
+    return re.sub(r"\D", "", str(s))
+
+def fmt_cnpj(d):
+    d = so_digitos(d).zfill(14)
+    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_registro_fundos():
+    """Registro de classes de fundos ativos (Resolução CVM 175)."""
+    url = "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/registro_fundo_classe.zip"
+    r = requests.get(url, timeout=60); r.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        with z.open("registro_classe.csv") as f:
+            reg = pd.read_csv(f, sep=";", encoding="latin-1", dtype=str,
+                              usecols=["CNPJ_Classe","Denominacao_Social","Situacao",
+                                       "Classificacao","Classificacao_Anbima",
+                                       "Patrimonio_Liquido","Data_Patrimonio_Liquido"])
+    reg = reg[reg["Situacao"].str.contains("Funcionamento", na=False)].copy()
+    reg["cnpj"]  = reg["CNPJ_Classe"].map(so_digitos)
+    reg["cnpji"] = pd.to_numeric(reg["cnpj"], errors="coerce")
+    reg["nome"]  = reg["Denominacao_Social"].str.strip()
+    reg["pl"]    = pd.to_numeric(reg["Patrimonio_Liquido"], errors="coerce")
+    reg = reg.dropna(subset=["cnpji"]).sort_values("pl", ascending=False, na_position="last")
+    return reg.reset_index(drop=True)
+
+def meses_recentes(n):
+    hoje = date.today()
+    out, y, m = [], hoje.year, hoje.month
+    for _ in range(n):
+        out.append(f"{y}{m:02d}")
+        m -= 1
+        if m == 0: y, m = y - 1, 12
+    return out
+
+@st.cache_data(ttl=43200, show_spinner=False)
+def baixar_informe_mes(yyyymm):
+    """Cotas diárias de TODOS os fundos no mês — compacto (cnpj int, data, quota)."""
+    url = f"https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_{yyyymm}.zip"
+    try:
+        r = requests.get(url, timeout=90)
+        if r.status_code != 200: return None
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            nome_csv = z.namelist()[0]
+            with z.open(nome_csv) as f:
+                df = pd.read_csv(f, sep=";", encoding="latin-1", dtype=str,
+                                 usecols=["CNPJ_FUNDO_CLASSE","DT_COMPTC","VL_QUOTA"])
+        return pd.DataFrame({
+            "cnpj":  pd.to_numeric(df["CNPJ_FUNDO_CLASSE"].map(so_digitos), errors="coerce"),
+            "data":  pd.to_datetime(df["DT_COMPTC"], errors="coerce"),
+            "quota": pd.to_numeric(df["VL_QUOTA"], errors="coerce").astype("float32"),
+        }).dropna()
+    except Exception:
+        return None
+
+def historico_fundo(cnpji, n_meses):
+    """Série diária de cotas de um fundo nos últimos n meses."""
+    partes = []
+    for ym in meses_recentes(n_meses):
+        mes = baixar_informe_mes(ym)
+        if mes is None or len(mes) == 0: continue
+        s = mes[mes["cnpj"] == cnpji]
+        if len(s): partes.append(s[["data","quota"]])
+    if not partes: return None
+    serie = pd.concat(partes).drop_duplicates("data").set_index("data")["quota"].sort_index()
+    return serie.astype(float)
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     if LOGO_B64:
@@ -357,7 +427,7 @@ with st.sidebar:
     else:
         st.markdown('<p style="color:#f8fafc;font-weight:700;text-align:center;letter-spacing:0.1em">UTAH INVESTIMENTOS</p>', unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#2d3f63;margin:0 0 16px'>", unsafe_allow_html=True)
-    modo = st.radio("", ["🏠  Início", "🔍  Empresa", "📂  Setor"], label_visibility="collapsed")
+    modo = st.radio("", ["🏠  Início", "🔍  Empresa", "📂  Setor", "💰  Fundos"], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
     st.markdown("<small style='color:#64748b'>Dados: Yahoo Finance · BCB<br>Cotações com delay de 15 min</small>", unsafe_allow_html=True)
 
@@ -396,7 +466,7 @@ if "Início" in modo:
     cards = [
         ("🔍", "Empresa Individual", "Digite qualquer ticker da B3 e acesse indicadores fundamentalistas, balanço trimestral, histórico de dividendos e análise técnica completa."),
         ("📂", "Análise por Setor",  "Escolha um dos 10 setores, compare portfólios, analise correlação, volatilidade e desempenho histórico com benchmark IBOVESPA."),
-        ("📈", "Benchmarking",       "Todos os resultados são comparados ao IBOVESPA e à taxa CDI (Banco Central do Brasil) como referências de mercado."),
+        ("💰", "Comparador de Fundos", "Busque fundos por nome ou CNPJ, compare quantos quiser no mesmo gráfico de rentabilidade e receba uma leitura automática da comparação. Dados oficiais da CVM."),
     ]
     for col, (icon, titulo, desc) in zip([c1, c2, c3], cards):
         col.markdown(f'<div class="feat-card"><div style="font-size:1.8rem">{icon}</div><h3>{titulo}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
@@ -618,6 +688,181 @@ if "Empresa" in modo:
     plt.tight_layout(); st.pyplot(fig_h); plt.close()
 
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fontes: Yahoo Finance · BCB · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
+    st.stop()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FUNDOS DE INVESTIMENTO — comparador
+# ══════════════════════════════════════════════════════════════════════════════
+if "Fundos" in modo:
+    st.markdown(f'<div style="margin-bottom:20px"><h1 style="color:{UTAH_WHITE};font-size:1.9rem;font-weight:700;margin:0 0 4px;font-family:\'Playfair Display\',serif">Comparador de Fundos</h1><p style="color:{UTAH_SILVER};margin:0;font-size:0.9rem">Busque por nome ou CNPJ · compare quantos fundos quiser · dados oficiais CVM</p></div>', unsafe_allow_html=True)
+
+    if "fundos_sel" not in st.session_state:
+        st.session_state["fundos_sel"] = []   # lista de dicts {cnpj, cnpji, nome}
+
+    PALETA = [UTAH_GOLD, "#60a5fa", "#4ade80", "#f472b6", "#fbbf24", "#a78bfa",
+              "#22d3ee", "#fb7185", "#34d399", "#e879f9", "#facc15", "#38bdf8"]
+
+    with st.spinner("Carregando registro de fundos CVM..."):
+        try:
+            reg = buscar_registro_fundos()
+        except Exception as e:
+            st.error(f"Não foi possível carregar o registro da CVM: {e}"); st.stop()
+
+    # ── Busca ──────────────────────────────────────────────────────────────────
+    cbusca, cjanela = st.columns([3, 1])
+    termo = cbusca.text_input("🔎 Buscar fundo", placeholder="Nome do fundo ou CNPJ (ex.: Alaska, Verde, 12.987.743/0001-86)")
+    n_meses = {"6 meses":6, "12 meses":12, "24 meses":24, "36 meses":36}[
+        cjanela.selectbox("Histórico", ["6 meses","12 meses","24 meses","36 meses"], index=1)]
+
+    if termo and len(termo.strip()) >= 3:
+        td = so_digitos(termo)
+        if len(td) >= 6:
+            res = reg[reg["cnpj"].str.contains(td, na=False)]
+        else:
+            res = reg[reg["nome"].str.contains(termo.strip(), case=False, na=False, regex=False)]
+        res = res.head(20)
+        if len(res) == 0:
+            st.info("Nenhum fundo ativo encontrado para esse termo.")
+        else:
+            opcoes = {f"{r['nome']}  ·  {fmt_cnpj(r['cnpj'])}": r for _, r in res.iterrows()}
+            esc = st.selectbox(f"{len(res)} resultado(s) — selecione para adicionar:", list(opcoes.keys()))
+            if st.button("➕ Adicionar à comparação"):
+                r = opcoes[esc]
+                ja = any(f["cnpji"] == r["cnpji"] for f in st.session_state["fundos_sel"])
+                if not ja:
+                    st.session_state["fundos_sel"].append(
+                        {"cnpj": r["cnpj"], "cnpji": int(r["cnpji"]), "nome": r["nome"]})
+                    st.rerun()
+                else:
+                    st.warning("Esse fundo já está na comparação.")
+
+    sel = st.session_state["fundos_sel"]
+    if not sel:
+        st.markdown(f'<div style="border:1px dashed {UTAH_NAVY3};border-radius:12px;padding:32px;text-align:center;color:{UTAH_SILVER};margin-top:12px">Busque um fundo acima e clique em <b>Adicionar</b> para começar a comparação.<br><span style="font-size:0.8rem;color:#64748b">Você pode adicionar quantos fundos quiser.</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fonte: Comissão de Valores Mobiliários (dados.cvm.gov.br) · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
+        st.stop()
+
+    # ── Chips dos fundos selecionados + remover ────────────────────────────────
+    st.markdown("<div style='margin:8px 0 4px;color:#94a3b8;font-size:0.85rem'>Em comparação:</div>", unsafe_allow_html=True)
+    cols = st.columns(min(len(sel), 4))
+    for i, f in enumerate(sel):
+        with cols[i % len(cols)]:
+            cor = PALETA[i % len(PALETA)]
+            st.markdown(f'<div style="border-left:4px solid {cor};background:#0f1c33;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:0.8rem;color:#f8fafc">{f["nome"][:42]}<br><span style="color:#64748b">{fmt_cnpj(f["cnpj"])}</span></div>', unsafe_allow_html=True)
+            if st.button("✕ remover", key=f"rm_{f['cnpji']}"):
+                st.session_state["fundos_sel"] = [x for x in sel if x["cnpji"] != f["cnpji"]]
+                st.rerun()
+    if st.button("🗑️ Limpar tudo"):
+        st.session_state["fundos_sel"] = []; st.rerun()
+
+    # ── Carregar histórico de cada fundo ───────────────────────────────────────
+    with st.spinner(f"Baixando cotas dos últimos {n_meses} meses na CVM..."):
+        series, ignorados = {}, []
+        for i, f in enumerate(sel):
+            s = historico_fundo(f["cnpji"], n_meses)
+            if s is None or len(s) < 2:
+                ignorados.append(f["nome"])
+            else:
+                series[f["nome"]] = s
+
+    if ignorados:
+        st.warning("Sem cotas no período para: " + ", ".join(n[:30] for n in ignorados))
+    if not series:
+        st.error("Nenhum dos fundos selecionados possui cotas no período."); st.stop()
+
+    # Período comum (apples-to-apples)
+    df_q = pd.DataFrame(series).sort_index()
+    df_comum = df_q.dropna()
+    periodo_comum = len(df_comum) >= 15
+    base = df_comum if periodo_comum else df_q.ffill().dropna(how="all")
+    if not periodo_comum:
+        st.info("Os fundos têm pouca sobreposição de datas — o gráfico usa o histórico disponível de cada um.")
+
+    nomes_fundos = list(series.keys())
+    cor_de = {n: PALETA[i % len(PALETA)] for i, n in enumerate(nomes_fundos)}
+
+    # ── Gráfico: rentabilidade acumulada (base 100) ────────────────────────────
+    section("📈", "Rentabilidade Acumulada")
+    fig, ax = utah_fig(13, 5.5)
+    for n in nomes_fundos:
+        s = base[n].dropna()
+        if len(s) < 2: continue
+        norm = s / s.iloc[0] * 100
+        ax.plot(norm.index, norm.values, label=n[:34], color=cor_de[n], linewidth=2)
+    ax.axhline(100, color=UTAH_SILVER, linewidth=0.8, alpha=0.5)
+    ax.set_ylabel("Base 100", color=UTAH_SILVER)
+    ax.set_title("Evolução da cota (normalizada)", fontsize=13, fontweight="bold", color=UTAH_WHITE)
+    ax.legend(facecolor="#0f1c33", edgecolor=UTAH_LINE, labelcolor=UTAH_WHITE, fontsize=8, loc="upper left")
+    plt.tight_layout(); st.pyplot(fig); plt.close()
+
+    # ── Métricas comparativas ──────────────────────────────────────────────────
+    section("📊", "Indicadores no Período")
+    cdi_f = buscar_cdi(DATA_INICIO, DATA_FIM)
+    linhas, metr = [], {}
+    for n in nomes_fundos:
+        s = base[n].dropna()
+        if len(s) < 2: continue
+        ret_d  = s.pct_change().dropna()
+        rf     = calcular_rf(cdi_f, ret_d.index)
+        r_acum = s.iloc[-1] / s.iloc[0] - 1
+        r_anu  = (1 + r_acum) ** (DIAS_UTEIS / max(len(ret_d), 1)) - 1
+        vol    = vol_anual(ret_d)
+        shp    = sharpe(ret_d, rf)
+        mdd    = max_dd(ret_d)
+        metr[n] = {"ret":r_acum, "anu":r_anu, "vol":vol, "sharpe":shp, "dd":mdd, "dias":len(s)}
+        linhas.append({"Fundo":n[:38], "Retorno":pct(r_acum), "Anualizado":pct(r_anu),
+                       "Volatilidade":pct(vol), "Sharpe":num(shp), "Máx. Queda":pct(mdd)})
+    st.dataframe(pd.DataFrame(linhas).set_index("Fundo"), use_container_width=True)
+
+    # ── Comentário automático da comparação ────────────────────────────────────
+    section("🧭", "Leitura Comparativa")
+    if len(metr) >= 1:
+        melhor_ret = max(metr, key=lambda k: metr[k]["ret"])
+        menor_vol  = min(metr, key=lambda k: metr[k]["vol"])
+        melhor_shp = max(metr, key=lambda k: metr[k]["sharpe"])
+        menor_dd   = max(metr, key=lambda k: metr[k]["dd"])  # dd é negativo; maior = menos queda
+        partes = []
+        for n in nomes_fundos:
+            if n not in metr: continue
+            m = metr[n]
+            perfil = []
+            if n == melhor_ret: perfil.append("maior retorno")
+            if n == menor_vol:  perfil.append("menor volatilidade")
+            if n == melhor_shp: perfil.append("melhor relação risco-retorno (Sharpe)")
+            if n == menor_dd:   perfil.append("menor queda máxima")
+            tag = " — destaque em " + ", ".join(perfil) if perfil else ""
+            partes.append(f"<li><b style='color:{cor_de[n]}'>{n[:40]}</b>: retorno de <b>{pct(m['ret'])}</b> "
+                          f"({pct(m['anu'])} a.a.), volatilidade de {pct(m['vol'])}, Sharpe {num(m['sharpe'])} "
+                          f"e queda máxima de {pct(m['dd'])}{tag}.</li>")
+
+        if len(metr) >= 2:
+            if melhor_shp == melhor_ret:
+                veredito = (f"<b style='color:{cor_de[melhor_shp]}'>{melhor_shp[:40]}</b> combinou o maior retorno "
+                            f"com a melhor eficiência de risco no período, o que historicamente o coloca à frente "
+                            f"dos demais nessa janela.")
+            else:
+                veredito = (f"<b style='color:{cor_de[melhor_ret]}'>{melhor_ret[:40]}</b> entregou o maior retorno, "
+                            f"mas <b style='color:{cor_de[melhor_shp]}'>{melhor_shp[:40]}</b> teve a melhor relação "
+                            f"risco-retorno (Sharpe) — ou seja, rendeu de forma mais consistente para o nível de "
+                            f"oscilação assumido. Para perfil mais conservador, "
+                            f"<b style='color:{cor_de[menor_vol]}'>{menor_vol[:40]}</b> foi o de menor volatilidade.")
+        else:
+            veredito = "Adicione um segundo fundo para gerar a comparação direta."
+
+        jan = f"{len(base.dropna())} pregões em comum" if periodo_comum else "histórico individual de cada fundo"
+        st.markdown(
+            f'<div style="background:#0f1c33;border:1px solid {UTAH_NAVY3};border-radius:12px;padding:18px 22px;color:#e2e8f0;line-height:1.55">'
+            f'<div style="color:#94a3b8;font-size:0.8rem;margin-bottom:8px">Análise sobre {jan} · janela de {n_meses} meses</div>'
+            f'<ul style="margin:0 0 12px;padding-left:18px">{"".join(partes)}</ul>'
+            f'<div style="border-top:1px solid {UTAH_NAVY3};padding-top:10px"><b style="color:{UTAH_GOLD}">Leitura:</b> {veredito}</div>'
+            f'</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div style="font-size:0.78rem;color:#64748b;margin-top:10px">⚠️ Análise baseada exclusivamente no desempenho histórico do período selecionado. '
+            f'Rentabilidade passada não garante resultados futuros e não considera tributação, liquidez ou perfil do investidor. '
+            f'Não constitui recomendação de investimento — consulte seu assessor Utah.</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fonte: Comissão de Valores Mobiliários (dados.cvm.gov.br) · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════

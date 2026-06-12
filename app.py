@@ -213,15 +213,11 @@ def buscar_dados(tickers):
     raw = yf.download(tickers + ["^BVSP"], period="2y", auto_adjust=True, progress=False)
     return parse_close(raw)
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def buscar_brapi(ticker_sa):
     ticker = ticker_sa.replace(".SA", "")
     try:
-        url = (
-            f"https://brapi.dev/api/quote/{ticker}"
-            f"?modules=summaryProfile,defaultKeyStatistics,financialData"
-            f"&token={BRAPI_TOKEN}"
-        )
+        url = f"https://brapi.dev/api/quote/{ticker}?token={BRAPI_TOKEN}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         return r.json().get("results", [{}])[0]
@@ -230,34 +226,12 @@ def buscar_brapi(ticker_sa):
 
 def _brapi_info(d):
     if not d: return {}
-    fd = d.get("financialData") or {}
-    ks = d.get("defaultKeyStatistics") or {}
-    dy_raw = d.get("dividendYield") or 0
-    dy = dy_raw / 100 if dy_raw and dy_raw > 1 else dy_raw
     return {
-        "shortName":          d.get("shortName"),
-        "longName":           d.get("longName"),
-        "trailingPE":         d.get("priceEarnings"),
-        "priceToBook":        ks.get("priceToBook"),
-        "enterpriseToEbitda": ks.get("enterpriseToEbitda"),
-        "dividendYield":      dy,
-        "trailingEps":        d.get("earningsPerShare"),
-        "returnOnEquity":     fd.get("returnOnEquity"),
-        "returnOnAssets":     fd.get("returnOnAssets"),
-        "profitMargins":      fd.get("profitMargins"),
-        "ebitdaMargins":      fd.get("ebitdaMargins"),
-        "grossMargins":       fd.get("grossMargins"),
-        "debtToEquity":       fd.get("debtToEquity"),
-        "currentRatio":       fd.get("currentRatio"),
-        "quickRatio":         fd.get("quickRatio"),
-        "revenueGrowth":      fd.get("revenueGrowth"),
-        "marketCap":          d.get("marketCap"),
-        "totalRevenue":       fd.get("totalRevenue"),
-        "ebitda":             fd.get("ebitda"),
-        "netIncomeToCommon":  fd.get("netIncome"),
-        "totalDebt":          fd.get("totalDebt"),
-        "totalCash":          fd.get("totalCash"),
-        "bookValue":          ks.get("bookValue"),
+        "shortName":  d.get("shortName"),
+        "longName":   d.get("longName"),
+        "trailingPE": d.get("priceEarnings"),
+        "trailingEps": d.get("earningsPerShare"),
+        "marketCap":  d.get("marketCap"),
     }
 
 def _brapi_cotacao(d):
@@ -461,7 +435,8 @@ if "Empresa" in modo:
     c1.metric("P/L",        num(info.get("trailingPE")))
     c2.metric("P/VP",       num(info.get("priceToBook")))
     c3.metric("EV/EBITDA",  num(info.get("enterpriseToEbitda")))
-    dy_val = float(info.get("dividendYield") or 0)
+    dy_raw = float(info.get("dividendYield") or 0)
+    dy_val = dy_raw / 100 if dy_raw > 1 else dy_raw
     c4.metric("Div. Yield", pct(dy_val))
     c5.metric("LPA",        f"R$ {num(info.get('trailingEps'))}")
 

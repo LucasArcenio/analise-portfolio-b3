@@ -707,6 +707,47 @@ if "Empresa" in modo:
     ax_h.legend(facecolor="#0f1c33", edgecolor=UTAH_LINE, labelcolor=UTAH_WHITE)
     plt.tight_layout(); st.pyplot(fig_h); plt.close()
 
+    # ── Recomendação de analistas (consenso de mercado) ────────────────────────
+    section("🎯", "Recomendação de Analistas")
+    rk    = (info.get("recommendationKey") or "").lower()
+    rm    = info.get("recommendationMean")
+    n_an  = info.get("numberOfAnalystOpinions")
+    alvo  = info.get("targetMeanPrice")
+    alvo_hi = info.get("targetHighPrice")
+    alvo_lo = info.get("targetLowPrice")
+    m = rm if rm else {"strong_buy":1.0,"buy":2.0,"hold":3.0,"sell":4.0,"strong_sell":5.0}.get(rk)
+
+    if m and (alvo or rm):
+        if   m <= 1.5: rlabel, rcor = "Compra Forte", "#16a34a"
+        elif m <= 2.5: rlabel, rcor = "Compra",       "#4ade80"
+        elif m <= 3.5: rlabel, rcor = "Neutro",       UTAH_GOLD
+        elif m <= 4.5: rlabel, rcor = "Venda",        "#f87171"
+        else:          rlabel, rcor = "Venda Forte",  "#dc2626"
+        pos = max(0.0, min(100.0, (m - 1) / 4 * 100))
+        upside = (alvo / cotacao_atual - 1) * 100 if (alvo and cotacao_atual) else None
+
+        st.markdown(
+            f'<div style="background:#0f1c33;border:1px solid {UTAH_NAVY3};border-radius:12px;padding:18px 22px;margin-bottom:8px">'
+            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+            f'<span style="background:{rcor};color:#0f1c33;font-weight:800;padding:4px 14px;border-radius:20px;font-size:1.05rem">{rlabel}</span>'
+            f'<span style="color:#94a3b8;font-size:0.85rem">consenso de {n_an or "—"} analistas · nota média {m:.2f} <span style="color:#475569">(1 = compra forte · 5 = venda forte)</span></span>'
+            f'</div>'
+            f'<div style="position:relative;height:13px;border-radius:7px;background:linear-gradient(90deg,#16a34a,#4ade80,#c9a84c,#f87171,#dc2626)">'
+            f'<div style="position:absolute;left:{pos}%;top:-7px;transform:translateX(-50%);font-size:1rem;color:#f8fafc">▼</div>'
+            f'</div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:#64748b;margin-top:4px">'
+            f'<span>Compra Forte</span><span>Compra</span><span>Neutro</span><span>Venda</span><span>Venda Forte</span>'
+            f'</div></div>', unsafe_allow_html=True)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Preço-alvo médio", f"R$ {alvo:.2f}" if alvo else "—")
+        c2.metric("Potencial vs. atual", f"{upside:+.1f}%" if upside is not None else "—")
+        c3.metric("Faixa de alvo", f"R$ {alvo_lo:.2f} – {alvo_hi:.2f}" if (alvo_lo and alvo_hi) else "—")
+        c4.metric("Analistas", str(n_an) if n_an else "—")
+        st.markdown('<div style="font-size:0.75rem;color:#64748b;margin-top:6px">Consenso de mercado — agrega diversas casas de análise, incluindo a XP. Fonte: dados públicos (Yahoo Finance). Não constitui recomendação de investimento da Utah.</div>', unsafe_allow_html=True)
+    else:
+        st.info("Sem cobertura de analistas disponível para este ticker no momento.")
+
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fontes: Yahoo Finance · BCB · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
     st.stop()
 

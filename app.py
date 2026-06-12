@@ -15,6 +15,8 @@ from pathlib import Path
 
 st.set_page_config(page_title="Utah Research", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
+BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "")
+
 # ── Logo em base64 ────────────────────────────────────────────────────────────
 def _img_b64(rel_path):
     try:
@@ -212,6 +214,67 @@ def buscar_dados(tickers):
     return parse_close(raw)
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def buscar_brapi(ticker_sa):
+    ticker = ticker_sa.replace(".SA", "")
+    try:
+        url = (
+            f"https://brapi.dev/api/quote/{ticker}"
+            f"?modules=summaryProfile,defaultKeyStatistics,financialData"
+            f"&token={BRAPI_TOKEN}"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json().get("results", [{}])[0]
+    except Exception:
+        return {}
+
+def _brapi_info(d):
+    if not d: return {}
+    fd = d.get("financialData") or {}
+    ks = d.get("defaultKeyStatistics") or {}
+    dy_raw = d.get("dividendYield") or 0
+    dy = dy_raw / 100 if dy_raw and dy_raw > 1 else dy_raw
+    return {
+        "shortName":          d.get("shortName"),
+        "longName":           d.get("longName"),
+        "trailingPE":         d.get("priceEarnings"),
+        "priceToBook":        ks.get("priceToBook"),
+        "enterpriseToEbitda": ks.get("enterpriseToEbitda"),
+        "dividendYield":      dy,
+        "trailingEps":        d.get("earningsPerShare"),
+        "returnOnEquity":     fd.get("returnOnEquity"),
+        "returnOnAssets":     fd.get("returnOnAssets"),
+        "profitMargins":      fd.get("profitMargins"),
+        "ebitdaMargins":      fd.get("ebitdaMargins"),
+        "grossMargins":       fd.get("grossMargins"),
+        "debtToEquity":       fd.get("debtToEquity"),
+        "currentRatio":       fd.get("currentRatio"),
+        "quickRatio":         fd.get("quickRatio"),
+        "revenueGrowth":      fd.get("revenueGrowth"),
+        "marketCap":          d.get("marketCap"),
+        "totalRevenue":       fd.get("totalRevenue"),
+        "ebitda":             fd.get("ebitda"),
+        "netIncomeToCommon":  fd.get("netIncome"),
+        "totalDebt":          fd.get("totalDebt"),
+        "totalCash":          fd.get("totalCash"),
+        "bookValue":          ks.get("bookValue"),
+    }
+
+def _brapi_cotacao(d):
+    if not d: return None
+    try:
+        return {
+            "preco":      round(float(d.get("regularMarketPrice", 0)), 2),
+            "abertura":   round(float(d.get("regularMarketOpen", 0)), 2),
+            "maxima":     round(float(d.get("regularMarketDayHigh", 0)), 2),
+            "minima":     round(float(d.get("regularMarketDayLow", 0)), 2),
+            "volume":     int(d.get("regularMarketVolume", 0)),
+            "fechamento": round(float(d.get("regularMarketPreviousClose", 0)), 2),
+        }
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def buscar_info(ticker_sa):
     try:
         return yf.Ticker(ticker_sa).info or {}
@@ -335,9 +398,15 @@ if "Empresa" in modo:
             raw_ind = parse_close(_raw)
         except Exception as e:
             st.error(f"Erro ao buscar preços: {e}"); st.stop()
+        brapi_raw = buscar_brapi(ticker_sa)
+        brapi_info_d = _brapi_info(brapi_raw)
         info_yf  = buscar_info(ticker_sa)
+        # Merge: Brapi values take precedence when non-None
+        info = {**info_yf, **{k: v for k, v in brapi_info_d.items() if v is not None}}
         qfin, divs_raw = buscar_financials(ticker_sa)
-        vivo     = cotacao_ao_vivo(ticker_sa)
+        vivo_brapi = _brapi_cotacao(brapi_raw)
+        vivo_yf    = cotacao_ao_vivo(ticker_sa)
+        vivo       = vivo_brapi if (vivo_brapi and vivo_brapi["preco"] > 0) else vivo_yf
 
     if ticker_sa not in raw_ind.columns or raw_ind[ticker_sa].dropna().empty:
         st.error(f"Ticker **{ticker_input}** não encontrado. Verifique o código."); st.stop()
@@ -349,7 +418,7 @@ if "Empresa" in modo:
     cdi_s = buscar_cdi(DATA_INICIO, DATA_FIM)
     rf_i  = calcular_rf(cdi_s, ret_ind.index)
 
-    nome_empresa = info_yf.get("shortName") or info_yf.get("longName") or ticker_input
+    nome_empresa = info.get("shortName") or info.get("longName") or ticker_input
 
     if vivo and vivo["preco"] > 0:
         cotacao_atual = vivo["preco"]
@@ -389,38 +458,37 @@ if "Empresa" in modo:
     section("📊", "Indicadores Fundamentalistas")
     st.markdown("**Valuation**")
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("P/L",        num(info_yf.get("trailingPE")))
-    c2.metric("P/VP",       num(info_yf.get("priceToBook")))
-    c3.metric("EV/EBITDA",  num(info_yf.get("enterpriseToEbitda")))
-    dy_raw = float(info_yf.get("dividendYield") or 0)
-    dy_val = dy_raw / 100 if dy_raw > 1 else dy_raw
+    c1.metric("P/L",        num(info.get("trailingPE")))
+    c2.metric("P/VP",       num(info.get("priceToBook")))
+    c3.metric("EV/EBITDA",  num(info.get("enterpriseToEbitda")))
+    dy_val = float(info.get("dividendYield") or 0)
     c4.metric("Div. Yield", pct(dy_val))
-    c5.metric("LPA",        f"R$ {num(info_yf.get('trailingEps'))}")
+    c5.metric("LPA",        f"R$ {num(info.get('trailingEps'))}")
 
     st.markdown("<br>**Rentabilidade**", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("ROE",            pct(info_yf.get("returnOnEquity")))
-    c2.metric("ROA",            pct(info_yf.get("returnOnAssets")))
-    c3.metric("Margem Líquida", pct(info_yf.get("profitMargins")))
-    c4.metric("Margem EBITDA",  pct(info_yf.get("ebitdaMargins")))
-    c5.metric("Margem Bruta",   pct(info_yf.get("grossMargins")))
+    c1.metric("ROE",            pct(info.get("returnOnEquity")))
+    c2.metric("ROA",            pct(info.get("returnOnAssets")))
+    c3.metric("Margem Líquida", pct(info.get("profitMargins")))
+    c4.metric("Margem EBITDA",  pct(info.get("ebitdaMargins")))
+    c5.metric("Margem Bruta",   pct(info.get("grossMargins")))
 
     st.markdown("<br>**Saúde Financeira**", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Dívida/PL",       num(info_yf.get("debtToEquity")))
-    c2.metric("Liquidez Corr.",  num(info_yf.get("currentRatio")))
-    c3.metric("Liquidez Rápida", num(info_yf.get("quickRatio")))
-    c4.metric("Cres. Receita",   pct(info_yf.get("revenueGrowth")))
-    c5.metric("Valor de Mercado",fmt_bi(info_yf.get("marketCap")))
+    c1.metric("Dívida/PL",       num(info.get("debtToEquity")))
+    c2.metric("Liquidez Corr.",  num(info.get("currentRatio")))
+    c3.metric("Liquidez Rápida", num(info.get("quickRatio")))
+    c4.metric("Cres. Receita",   pct(info.get("revenueGrowth")))
+    c5.metric("Valor de Mercado",fmt_bi(info.get("marketCap")))
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("**DRE — últimos 12 meses**")
-        st.table(pd.DataFrame({"Receita Líquida":[fmt_bi(info_yf.get("totalRevenue"))],"EBITDA":[fmt_bi(info_yf.get("ebitda"))],"Lucro Líquido":[fmt_bi(info_yf.get("netIncomeToCommon"))]}).T.rename(columns={0:"Valor"}))
+        st.table(pd.DataFrame({"Receita Líquida":[fmt_bi(info.get("totalRevenue"))],"EBITDA":[fmt_bi(info.get("ebitda"))],"Lucro Líquido":[fmt_bi(info.get("netIncomeToCommon"))]}).T.rename(columns={0:"Valor"}))
     with col_b:
         st.markdown("**Estrutura de Capital**")
-        st.table(pd.DataFrame({"Dívida Total":[fmt_bi(info_yf.get("totalDebt"))],"Caixa":[fmt_bi(info_yf.get("totalCash"))],"VPA":[f"R$ {num(info_yf.get('bookValue'))}"]}).T.rename(columns={0:"Valor"}))
+        st.table(pd.DataFrame({"Dívida Total":[fmt_bi(info.get("totalDebt"))],"Caixa":[fmt_bi(info.get("totalCash"))],"VPA":[f"R$ {num(info.get('bookValue'))}"]}).T.rename(columns={0:"Valor"}))
 
     st.markdown("**DRE Trimestral**")
     try:

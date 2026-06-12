@@ -316,6 +316,49 @@ def buscar_ibov(period="3y"):
     except Exception:
         return None
 
+# ── Fita de cotações (ticker tape) da página inicial ──────────────────────────
+TAPE_SYMS = ["VALE3", "PETR4", "ITUB4", "BBAS3", "BBDC4",
+             "B3SA3", "ABEV3", "WEGE3", "ITSA4", "PRIO3", "^BVSP"]
+
+@st.cache_data(ttl=90, show_spinner=False)
+def ticker_tape_dados():
+    import concurrent.futures
+    def _fetch(s):
+        try:
+            r = requests.get(f"https://brapi.dev/api/quote/{s}?token={BRAPI_TOKEN}", timeout=10)
+            if r.status_code == 200:
+                d = r.json().get("results", [{}])[0]
+                px = d.get("regularMarketPrice")
+                if px is not None:
+                    return {"sym": d.get("symbol", s), "px": px,
+                            "chg": d.get("regularMarketChangePercent") or 0.0}
+        except Exception:
+            return None
+        return None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(TAPE_SYMS)) as ex:
+        res = list(ex.map(_fetch, TAPE_SYMS))
+    return [r for r in res if r]
+
+def _fmt_preco_tape(px, is_idx):
+    if is_idx:
+        return f"{px:,.0f}".replace(",", ".") + " pts"
+    return "R$ " + f"{px:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def render_ticker_tape(dados):
+    itens = ""
+    for d in dados:
+        sym = d["sym"]; px = d["px"]; chg = d["chg"]
+        is_idx = sym.startswith("^")
+        nome = "IBOV" if is_idx else sym
+        up = chg >= 0
+        cls = "tk-up" if up else "tk-down"
+        seta = "▲" if up else "▼"
+        chg_s = f"{chg:+.2f}%".replace(".", ",")
+        itens += (f'<span class="tk-item"><span class="tk-sym">{nome}</span>'
+                  f'<span class="tk-px">{_fmt_preco_tape(px, is_idx)}</span>'
+                  f'<span class="tk-chg {cls}">{seta} {chg_s}</span></span>')
+    return itens
+
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_brapi(ticker_sa):
     ticker = ticker_sa.replace(".SA", "")
@@ -555,15 +598,27 @@ if "Início" in modo:
             <span class="badge">Portfólio por Setor</span>
             <span class="badge">Cotação em Tempo Real</span>
         </div>
-        <div class="chip-row">
-            <span class="chip">PETR4</span>
-            <span class="chip">VALE3</span>
-            <span class="chip">ITUB4</span>
-            <span class="chip">BBDC4</span>
-            <span class="chip">WEGE3</span>
-            <span class="chip">MGLU3</span>
-        </div>
     </div>""", unsafe_allow_html=True)
+
+    # ── Fita de cotações ao vivo (10 principais + Ibovespa) ────────────────────
+    tape = ticker_tape_dados()
+    if tape:
+        itens = render_ticker_tape(tape)
+        st.markdown(
+f"""<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap');
+.ticker-tape{{overflow:hidden;background:linear-gradient(90deg,#070d1c,#0f1c33,#070d1c);border-top:1px solid #2d3f63;border-bottom:1px solid #2d3f63;padding:11px 0;margin:4px 0 30px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}}
+.ticker-track{{display:inline-flex;white-space:nowrap;will-change:transform;animation:tkscroll 40s linear infinite}}
+.ticker-tape:hover .ticker-track{{animation-play-state:paused}}
+@keyframes tkscroll{{from{{transform:translateX(0)}}to{{transform:translateX(-50%)}}}}
+.tk-item{{display:inline-flex;align-items:baseline;gap:9px;padding:0 28px;font-family:'Orbitron',sans-serif;border-right:1px solid #1e2d4a}}
+.tk-sym{{color:#cbd5e1;font-weight:700;letter-spacing:1.5px;font-size:0.92rem}}
+.tk-px{{color:#f8fafc;font-weight:500;font-size:0.92rem}}
+.tk-chg{{font-weight:700;font-size:0.86rem}}
+.tk-up{{color:#39ff14;text-shadow:0 0 9px rgba(57,255,20,.55)}}
+.tk-down{{color:#ff2e63;text-shadow:0 0 9px rgba(255,46,99,.55)}}
+</style>
+<div class="ticker-tape"><div class="ticker-track">{itens}{itens}</div></div>""", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     cards = [

@@ -32,7 +32,7 @@ def buscar_indicadores():
     try:
         r = requests.get(HG_URL.format(HG_KEY), timeout=10)
         r.raise_for_status()
-        return r.json().get("results", {})
+        return r.json()
     except Exception:
         return {}
 
@@ -83,10 +83,15 @@ def render_indicadores(autorefresh=False):
     if autorefresh and _HAS_AUTOREFRESH:
         st_autorefresh(interval=60_000, key="indicadores_auto")
 
-    dados = buscar_indicadores()
+    resp = buscar_indicadores()
+    dados = (resp or {}).get("results", {})
     if not dados:
         st.warning("Não foi possível carregar os indicadores de mercado agora. Tente novamente em instantes.")
         return
+
+    if not resp.get("valid_key"):
+        st.info("🔑 Chave HG Brasil não configurada — Selic, CDI e Bitcoin ficam indisponíveis. "
+                "Adicione `HG_KEY` em Settings → Secrets no Streamlit Cloud para liberar todos os indicadores.")
 
     st.markdown(IND_CSS, unsafe_allow_html=True)
 

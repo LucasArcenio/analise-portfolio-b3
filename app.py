@@ -420,6 +420,7 @@ def _fundamentus_para_info(d):
         "bookValue":          _fval(d, "VPA"),
         "returnOnEquity":     _fval(d, "ROE"),
         "returnOnAssets":     _fval(d, "EBIT_Ativo"),
+        "roic":               _fval(d, "ROIC"),
         "profitMargins":      _fval(d, "Marg_Liquida"),
         "ebitdaMargins":      _fval(d, "Marg_EBIT"),
         "grossMargins":       _fval(d, "Marg_Bruta"),
@@ -431,7 +432,10 @@ def _fundamentus_para_info(d):
         "ebitda":             _fabs(d, "EBIT_12m"),
         "netIncomeToCommon":  _fabs(d, "Lucro_Liquido_12m"),
         "totalDebt":          _fabs(d, "Div_Bruta"),
+        "netDebt":            _fabs(d, "Div_Liquida"),
         "totalCash":          _fabs(d, "Disponibilidades"),
+        "high52Week":         _fabs(d, "Max_52_sem"),
+        "low52Week":          _fabs(d, "Min_52_sem"),
     }
 
 def _brapi_cotacao(d):
@@ -719,6 +723,13 @@ if "Empresa" in modo:
         c4.metric("Fechamento ant.", f"R$ {vivo['fechamento']:.2f}")
         vol = vivo['volume']
         c5.metric("Volume", f"{vol/1e6:.1f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K")
+
+    h52 = info.get("high52Week") or info.get("fiftyTwoWeekHigh")
+    l52 = info.get("low52Week")  or info.get("fiftyTwoWeekLow")
+    if h52 or l52:
+        c1, c2, c3 = st.columns([1, 1, 3])
+        if l52: c1.metric("Mín. 52 semanas", f"R$ {l52:.2f}")
+        if h52: c2.metric("Máx. 52 semanas", f"R$ {h52:.2f}")
     st.markdown("<br>", unsafe_allow_html=True)
 
     section("📊", "Indicadores Fundamentalistas")
@@ -735,16 +746,16 @@ if "Empresa" in modo:
     st.markdown("<br>**Rentabilidade**", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("ROE",            pct(info.get("returnOnEquity")))
-    c2.metric("ROA",            pct(info.get("returnOnAssets")))
+    c2.metric("ROIC",           pct(info.get("roic")))
     c3.metric("Margem Líquida", pct(info.get("profitMargins")))
-    c4.metric("Margem EBITDA",  pct(info.get("ebitdaMargins")))
+    c4.metric("Margem EBIT",    pct(info.get("ebitdaMargins")))
     c5.metric("Margem Bruta",   pct(info.get("grossMargins")))
 
     st.markdown("<br>**Saúde Financeira**", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Dívida/PL",       num(info.get("debtToEquity")))
     c2.metric("Liquidez Corr.",  num(info.get("currentRatio")))
-    c3.metric("Liquidez Rápida", num(info.get("quickRatio")))
+    c3.metric("Dív. Líquida",    fmt_bi(info.get("netDebt")))
     c4.metric("Cres. Receita",   pct(info.get("revenueGrowth")))
     c5.metric("Valor de Mercado",fmt_bi(info.get("marketCap")))
 
@@ -752,10 +763,10 @@ if "Empresa" in modo:
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("**DRE — últimos 12 meses**")
-        st.table(pd.DataFrame({"Receita Líquida":[fmt_bi(info.get("totalRevenue"))],"EBITDA":[fmt_bi(info.get("ebitda"))],"Lucro Líquido":[fmt_bi(info.get("netIncomeToCommon"))]}).T.rename(columns={0:"Valor"}))
+        st.table(pd.DataFrame({"Receita Líquida":[fmt_bi(info.get("totalRevenue"))],"EBIT":[fmt_bi(info.get("ebitda"))],"Lucro Líquido":[fmt_bi(info.get("netIncomeToCommon"))]}).T.rename(columns={0:"Valor"}))
     with col_b:
         st.markdown("**Estrutura de Capital**")
-        st.table(pd.DataFrame({"Dívida Total":[fmt_bi(info.get("totalDebt"))],"Caixa":[fmt_bi(info.get("totalCash"))],"VPA":[f"R$ {num(info.get('bookValue'))}"]}).T.rename(columns={0:"Valor"}))
+        st.table(pd.DataFrame({"Dívida Bruta":[fmt_bi(info.get("totalDebt"))],"Dívida Líquida":[fmt_bi(info.get("netDebt"))],"Caixa":[fmt_bi(info.get("totalCash"))],"VPA":[f"R$ {num(info.get('bookValue'))}"]}).T.rename(columns={0:"Valor"}))
 
     st.markdown("**DRE Trimestral**")
     try:

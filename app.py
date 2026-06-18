@@ -27,7 +27,7 @@ st.set_page_config(page_title="Utah Research", page_icon=_page_icon(), layout="w
 BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AUTENTICAÇÃO
+# AUTENTICAÇÃO — login + cadastro com aprovação (Supabase)
 # ══════════════════════════════════════════════════════════════════════════════
 _UTAH_NAVY   = "#1e2d4a"
 _UTAH_GOLD   = "#c9a84c"
@@ -35,61 +35,158 @@ _UTAH_NAVY2  = "#2d3f63"
 _UTAH_WHITE  = "#f8fafc"
 _UTAH_SILVER = "#94a3b8"
 
-def _verify_credentials(username: str, password: str) -> bool:
-    """Verifica usuário/senha contra st.secrets['users']."""
-    users = dict(st.secrets.get("users", {}))
-    if not users:
-        return False
-    stored = users.get(username.lower().strip(), "")
-    if not stored:
-        return False
-    return hmac.compare_digest(str(stored), str(password))
+_SUPA_URL    = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
+_SUPA_KEY    = str(st.secrets.get("SUPABASE_KEY", ""))
+_ADMIN_EMAIL = str(st.secrets.get("ADMIN_EMAIL", "")).lower().strip()
 
+def _hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+
+def _supa_headers():
+    return {
+        "apikey": _SUPA_KEY,
+        "Authorization": f"Bearer {_SUPA_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+
+@st.cache_data(ttl=10, show_spinner=False)
+def _supa_listar(status_filtro: str):
+    """Lista usuários por status (cache 10s para o painel admin)."""
+    if not _SUPA_URL: return []
+    try:
+        r = requests.get(
+            f"{_SUPA_URL}/rest/v1/usuarios"
+            f"?status=eq.{status_filtro}&select=id,nome,email,criado_em&order=criado_em.asc",
+            headers=_supa_headers(), timeout=10)
+        return r.json() if r.status_code == 200 else []
+    except Exception:
+        return []
+
+def _supa_atualizar_status(uid: str, novo_status: str) -> bool:
+    if not _SUPA_URL: return False
+    try:
+        r = requests.patch(
+            f"{_SUPA_URL}/rest/v1/usuarios?id=eq.{uid}",
+            headers=_supa_headers(), json={"status": novo_status}, timeout=10)
+        return r.status_code in (200, 204)
+    except Exception:
+        return False
+
+def _login(email: str, password: str):
+    """Retorna (True, nome) ou (False, mensagem_erro)."""
+    email = email.lower().strip()
+    # Fallback: secrets estáticos (para o admin sem Supabase configurado)
+    fallback_users = dict(st.secrets.get("users", {}))
+    if fallback_users:
+        stored = fallback_users.get(email, "")
+        if stored and hmac.compare_digest(str(stored), str(password)):
+            return True, email.split("@")[0]
+    if not _SUPA_URL:
+        return False, "Serviço de autenticação não configurado."
+    try:
+        r = requests.get(
+            f"{_SUPA_URL}/rest/v1/usuarios"
+            f"?email=eq.{email}&select=nome,senha_hash,status",
+            headers=_supa_headers(), timeout=10)
+        if r.status_code != 200 or not r.json():
+            return False, "E-mail não encontrado."
+        u = r.json()[0]
+        if u["status"] == "pendente":
+            return False, "Cadastro aguardando aprovação. Aguarde o contato da Utah."
+        if u["status"] == "rejeitado":
+            return False, "Acesso negado. Entre em contato com a Utah Investimentos."
+        if hmac.compare_digest(u.get("senha_hash", ""), _hash_pw(password)):
+            return True, u.get("nome") or email.split("@")[0]
+        return False, "Senha incorreta."
+    except Exception as e:
+        return False, f"Erro de conexão: {e}"
+
+def _registrar(nome: str, email: str, password: str):
+    """Retorna (True, msg_ok) ou (False, msg_erro)."""
+    if not _SUPA_URL:
+        return False, "Serviço de cadastro não configurado. Fale com a Utah."
+    if len(password) < 6:
+        return False, "A senha deve ter pelo menos 6 caracteres."
+    try:
+        r = requests.post(
+            f"{_SUPA_URL}/rest/v1/usuarios",
+            headers=_supa_headers(),
+            json={"nome": nome.strip(), "email": email.lower().strip(),
+                  "senha_hash": _hash_pw(password), "status": "pendente"},
+            timeout=10)
+        if r.status_code in (200, 201):
+            return True, "Solicitação enviada! Você será notificado quando aprovado."
+        if r.status_code == 409:
+            return False, "Este e-mail já possui um cadastro."
+        return False, f"Erro ao cadastrar ({r.status_code}). Tente novamente."
+    except Exception as e:
+        return False, f"Erro de conexão: {e}"
+
+# ── Tela de login/cadastro ─────────────────────────────────────────────────
 def _auth_gate():
-    """Bloqueia o app até o usuário autenticar. Chame logo após set_page_config."""
     if st.session_state.get("_utah_authenticated"):
-        return  # já autenticado nesta sessão
+        return
 
-    # ── CSS da tela de login ──────────────────────────────────────────────────
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&display=swap');
-    html, body, [class*="css"] {{ background-color: {_UTAH_NAVY}; font-family: 'Inter', sans-serif; }}
-    .login-wrap {{ max-width: 420px; margin: 80px auto 0; padding: 0 16px; }}
-    .login-card {{ background: linear-gradient(160deg, #0f1c33, {_UTAH_NAVY2});
-        border: 1px solid {_UTAH_NAVY2}; border-top: 3px solid {_UTAH_GOLD};
-        border-radius: 16px; padding: 40px 36px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }}
-    .login-title {{ font-family:'Playfair Display',serif; color:{_UTAH_WHITE};
-        font-size:1.65rem; font-weight:700; text-align:center; margin:0 0 4px; }}
-    .login-sub {{ color:{_UTAH_SILVER}; font-size:.85rem; text-align:center; margin:0 0 28px; }}
-    .login-divider {{ width:40px; height:2px; background:{_UTAH_GOLD};
-        margin:0 auto 28px; border-radius:2px; }}
+    html, body, [class*="css"] {{ background-color:{_UTAH_NAVY};font-family:'Inter',sans-serif; }}
+    .login-hdr {{ max-width:460px;margin:52px auto 0;padding:0 16px;text-align:center }}
+    .login-hdr-title {{ font-family:'Playfair Display',serif;color:{_UTAH_WHITE};font-size:1.7rem;font-weight:700;margin:0 0 2px }}
+    .login-hdr-div {{ width:40px;height:2px;background:{_UTAH_GOLD};margin:12px auto 10px;border-radius:2px }}
+    .login-hdr-sub {{ color:{_UTAH_SILVER};font-size:.84rem;margin:0 }}
     </style>
-    <div class="login-wrap">
-      <div class="login-card">
-        <div class="login-title">Utah Research</div>
-        <div class="login-divider"></div>
-        <div class="login-sub">Acesso restrito · Utah Investimentos</div>
-      </div>
+    <div class="login-hdr">
+      <div class="login-hdr-title">Utah Research</div>
+      <div class="login-hdr-div"></div>
+      <div class="login-hdr-sub">Acesso restrito · Utah Investimentos · Parceiro XP</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Formulário centrado dentro da mesma área visual
-    col_l, col_c, col_r = st.columns([1, 2, 1])
+    col_l, col_c, col_r = st.columns([1, 2.2, 1])
     with col_c:
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        with st.form("utah_login", clear_on_submit=False):
-            username = st.text_input("Usuário", placeholder="seu.login")
-            password = st.text_input("Senha",   placeholder="••••••••", type="password")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
+        tab_login, tab_reg = st.tabs(["Entrar", "Solicitar acesso"])
 
-        if submitted:
-            if _verify_credentials(username, password):
-                st.session_state["_utah_authenticated"] = True
-                st.session_state["_utah_username"]      = username.lower().strip()
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos. Tente novamente.")
+        with tab_login:
+            with st.form("utah_login", clear_on_submit=False):
+                email_l = st.text_input("E-mail", placeholder="voce@exemplo.com", key="l_email")
+                senha_l = st.text_input("Senha",  placeholder="••••••••", type="password", key="l_senha")
+                ok_l    = st.form_submit_button("Entrar", use_container_width=True)
+            if ok_l:
+                autenticado, resultado = _login(email_l, senha_l)
+                if autenticado:
+                    st.session_state["_utah_authenticated"] = True
+                    st.session_state["_utah_email"]         = email_l.lower().strip()
+                    st.session_state["_utah_nome"]          = resultado
+                    st.session_state["_utah_is_admin"]      = (email_l.lower().strip() == _ADMIN_EMAIL)
+                    st.rerun()
+                else:
+                    st.error(resultado)
+
+        with tab_reg:
+            with st.form("utah_register", clear_on_submit=True):
+                reg_nome  = st.text_input("Nome completo",   placeholder="João da Silva")
+                reg_email = st.text_input("E-mail",          placeholder="voce@exemplo.com")
+                reg_senha = st.text_input("Senha",           placeholder="mínimo 6 caracteres", type="password")
+                reg_conf  = st.text_input("Confirmar senha", placeholder="repita a senha",      type="password")
+                ok_r      = st.form_submit_button("Solicitar acesso", use_container_width=True)
+            if ok_r:
+                if not reg_nome.strip():
+                    st.error("Informe seu nome completo.")
+                elif "@" not in reg_email:
+                    st.error("Informe um e-mail válido.")
+                elif reg_senha != reg_conf:
+                    st.error("As senhas não coincidem.")
+                else:
+                    sucesso, msg = _registrar(reg_nome, reg_email, reg_senha)
+                    (st.success if sucesso else st.error)(msg)
+
+        st.markdown(
+            f'<div style="text-align:center;margin-top:18px;font-size:.78rem;color:#475569">'
+            f'Dúvidas? Fale com a Utah via '
+            f'<a href="https://wa.me/5541996817327" target="_blank" style="color:{_UTAH_GOLD}">WhatsApp</a></div>',
+            unsafe_allow_html=True)
 
     st.stop()
 
@@ -650,14 +747,18 @@ with st.sidebar:
     else:
         st.markdown('<p style="color:#f8fafc;font-weight:700;text-align:center;letter-spacing:0.1em">UTAH INVESTIMENTOS</p>', unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#2d3f63;margin:0 0 16px'>", unsafe_allow_html=True)
-    modo = st.radio("", ["Início", "Empresa", "Setor", "Fundos", "Indicadores"], label_visibility="collapsed")
+    _modos = ["Início", "Empresa", "Setor", "Fundos", "Indicadores"]
+    if st.session_state.get("_utah_is_admin"):
+        _modos.append("Admin")
+    modo = st.radio("", _modos, label_visibility="collapsed")
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
-    _uname = st.session_state.get("_utah_username", "")
-    if _uname:
-        st.markdown(f"<small style='color:#94a3b8'>Logado como <b style='color:#c9a84c'>{_uname}</b></small>", unsafe_allow_html=True)
+    _nome_sessao = st.session_state.get("_utah_nome") or st.session_state.get("_utah_email", "")
+    if _nome_sessao:
+        st.markdown(f"<small style='color:#94a3b8'>Logado como<br><b style='color:#c9a84c'>{_nome_sessao}</b></small>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     if st.button("Sair", use_container_width=True, key="logout_btn"):
-        st.session_state["_utah_authenticated"] = False
-        st.session_state["_utah_username"]      = ""
+        for k in ["_utah_authenticated","_utah_email","_utah_nome","_utah_is_admin"]:
+            st.session_state.pop(k, None)
         st.rerun()
     st.markdown("<small style='color:#64748b'>Dados: Yahoo Finance · BCB<br>Cotações com delay de 15 min</small>", unsafe_allow_html=True)
 
@@ -1259,6 +1360,87 @@ if "Fundos" in modo:
             f'Não constitui recomendação de investimento — consulte seu assessor Utah.</div>', unsafe_allow_html=True)
 
     st.markdown(f'<div class="utah-footer">Utah Investimentos · Parceiro XP · Fonte: Comissão de Valores Mobiliários (dados.cvm.gov.br) · Não constitui recomendação de investimento</div>', unsafe_allow_html=True)
+    st.stop()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ADMIN — painel de aprovação de usuários
+# ══════════════════════════════════════════════════════════════════════════════
+if "Admin" in modo:
+    if not st.session_state.get("_utah_is_admin"):
+        st.error("Acesso restrito ao administrador."); st.stop()
+
+    st.markdown(f'<h1 style="color:{UTAH_WHITE};font-family:\'Playfair Display\',serif;margin-bottom:4px">Painel Admin</h1>'
+                f'<p style="color:{UTAH_SILVER};margin:0 0 24px;font-size:.9rem">Gerencie os acessos ao Utah Research</p>',
+                unsafe_allow_html=True)
+
+    if not _SUPA_URL:
+        st.warning("SUPABASE_URL e SUPABASE_KEY não configurados nos secrets. Adicione-os para ativar o cadastro de usuários.")
+        st.stop()
+
+    tab_pend, tab_aprov, tab_rejeit = st.tabs(["Pendentes", "Aprovados", "Rejeitados"])
+
+    def _linha_usuario(u, acao_label, novo_status, cor):
+        c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
+        c1.markdown(f"<span style='color:{UTAH_WHITE};font-weight:600'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
+        c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
+        criado = (u.get("criado_em","")[:10]) if u.get("criado_em") else "—"
+        c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{criado}</span>", unsafe_allow_html=True)
+        if c4.button(acao_label, key=f"btn_{u['id']}_{novo_status}",
+                     type="primary" if novo_status == "aprovado" else "secondary"):
+            if _supa_atualizar_status(u["id"], novo_status):
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error("Erro ao atualizar. Tente novamente.")
+
+    with tab_pend:
+        pendentes = _supa_listar("pendente")
+        if not pendentes:
+            st.info("Nenhuma solicitação pendente.")
+        else:
+            st.markdown(f"<div style='color:{UTAH_SILVER};font-size:.82rem;margin-bottom:10px'>{len(pendentes)} solicitação(ões) aguardando aprovação</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='display:grid;grid-template-columns:2.5fr 2.5fr 1.5fr 1.2fr;gap:4px;padding:6px 0;border-bottom:1px solid {UTAH_LINE};margin-bottom:8px'>"
+                        f"<span style='color:{UTAH_SILVER};font-size:.75rem;text-transform:uppercase'>Nome</span>"
+                        f"<span style='color:{UTAH_SILVER};font-size:.75rem;text-transform:uppercase'>E-mail</span>"
+                        f"<span style='color:{UTAH_SILVER};font-size:.75rem;text-transform:uppercase'>Data</span>"
+                        f"<span></span></div>", unsafe_allow_html=True)
+            for u in pendentes:
+                _linha_usuario(u, "Aprovar", "aprovado", "#4ade80")
+                c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
+                if c4.button("Rejeitar", key=f"rej_{u['id']}"):
+                    if _supa_atualizar_status(u["id"], "rejeitado"):
+                        st.cache_data.clear(); st.rerun()
+
+    with tab_aprov:
+        aprovados = _supa_listar("aprovado")
+        if not aprovados:
+            st.info("Nenhum usuário aprovado ainda.")
+        else:
+            st.markdown(f"<span style='color:{UTAH_SILVER};font-size:.82rem'>{len(aprovados)} usuário(s) com acesso ativo</span>", unsafe_allow_html=True)
+            for u in aprovados:
+                c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
+                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
+                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
+                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{(u.get('criado_em','')[:10])}</span>", unsafe_allow_html=True)
+                if c4.button("Revogar", key=f"rev_{u['id']}"):
+                    if _supa_atualizar_status(u["id"], "rejeitado"):
+                        st.cache_data.clear(); st.rerun()
+
+    with tab_rejeit:
+        rejeitados = _supa_listar("rejeitado")
+        if not rejeitados:
+            st.info("Nenhum usuário rejeitado.")
+        else:
+            for u in rejeitados:
+                c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
+                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
+                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
+                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{(u.get('criado_em','')[:10])}</span>", unsafe_allow_html=True)
+                if c4.button("Re-aprovar", key=f"reap_{u['id']}"):
+                    if _supa_atualizar_status(u["id"], "aprovado"):
+                        st.cache_data.clear(); st.rerun()
+
+    st.markdown(f'<div class="utah-footer">Utah Investimentos · Painel Administrativo</div>', unsafe_allow_html=True)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════

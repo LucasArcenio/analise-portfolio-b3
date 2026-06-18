@@ -4,6 +4,7 @@ warnings.filterwarnings('ignore')
 import base64
 import hmac
 import hashlib
+import html as _html
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -40,7 +41,10 @@ _SUPA_KEY    = str(st.secrets.get("SUPABASE_KEY", ""))
 _ADMIN_EMAIL = str(st.secrets.get("ADMIN_EMAIL", "")).lower().strip()
 
 def _hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+    # PBKDF2-HMAC-SHA256, 260k iterations (NIST SP 800-132).
+    # PW_SALT é um segredo do servidor — nunca armazenado junto ao hash.
+    salt = str(st.secrets.get("PW_SALT", "utah-research-pbkdf2-salt")).encode("utf-8")
+    return hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, 260_000).hex()
 
 def _supa_headers():
     return {
@@ -54,10 +58,14 @@ def _supa_headers():
 def _supa_listar(status_filtro: str):
     """Lista usuários por status (cache 10s para o painel admin)."""
     if not _SUPA_URL: return []
+    # status_filtro vem de constante interna — sem risco de injeção aqui,
+    # mas mantemos params dict por consistência.
     try:
         r = requests.get(
-            f"{_SUPA_URL}/rest/v1/usuarios"
-            f"?status=eq.{status_filtro}&select=id,nome,email,criado_em&order=criado_em.asc",
+            f"{_SUPA_URL}/rest/v1/usuarios",
+            params={"status": f"eq.{status_filtro}",
+                    "select": "id,nome,email,criado_em",
+                    "order": "criado_em.asc"},
             headers=_supa_headers(), timeout=10)
         return r.json() if r.status_code == 200 else []
     except Exception:
@@ -67,11 +75,14 @@ def _supa_atualizar_status(uid: str, novo_status: str) -> bool:
     if not _SUPA_URL: return False
     try:
         r = requests.patch(
-            f"{_SUPA_URL}/rest/v1/usuarios?id=eq.{uid}",
+            f"{_SUPA_URL}/rest/v1/usuarios",
+            params={"id": f"eq.{uid}"},
             headers=_supa_headers(), json={"status": novo_status}, timeout=10)
         return r.status_code in (200, 204)
     except Exception:
         return False
+
+_MSG_LOGIN_INVALIDO = "E-mail ou senha incorretos."  # mensagem genérica (fix #4)
 
 def _login(email: str, password: str):
     """Retorna (True, nome) ou (False, mensagem_erro)."""
@@ -85,12 +96,13 @@ def _login(email: str, password: str):
     if not _SUPA_URL:
         return False, "Serviço de autenticação não configurado."
     try:
+        # Fix #2: params dict — requests URL-encoda o email automaticamente
         r = requests.get(
-            f"{_SUPA_URL}/rest/v1/usuarios"
-            f"?email=eq.{email}&select=nome,senha_hash,status",
+            f"{_SUPA_URL}/rest/v1/usuarios",
+            params={"email": f"eq.{email}", "select": "nome,senha_hash,status"},
             headers=_supa_headers(), timeout=10)
         if r.status_code != 200 or not r.json():
-            return False, "E-mail não encontrado."
+            return False, _MSG_LOGIN_INVALIDO  # fix #4: não revela se email existe
         u = r.json()[0]
         if u["status"] == "pendente":
             return False, "Cadastro aguardando aprovação. Aguarde o contato da Utah."
@@ -98,7 +110,7 @@ def _login(email: str, password: str):
             return False, "Acesso negado. Entre em contato com a Utah Investimentos."
         if hmac.compare_digest(u.get("senha_hash", ""), _hash_pw(password)):
             return True, u.get("nome") or email.split("@")[0]
-        return False, "Senha incorreta."
+        return False, _MSG_LOGIN_INVALIDO  # fix #4: mesma mensagem para senha errada
     except Exception as e:
         return False, f"Erro de conexão: {e}"
 
@@ -754,7 +766,7 @@ with st.sidebar:
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
     _nome_sessao = st.session_state.get("_utah_nome") or st.session_state.get("_utah_email", "")
     if _nome_sessao:
-        st.markdown(f"<small style='color:#94a3b8'>Logado como<br><b style='color:#c9a84c'>{_nome_sessao}</b></small>", unsafe_allow_html=True)
+        st.markdown(f"<small style='color:#94a3b8'>Logado como<br><b style='color:#c9a84c'>{_html.escape(_nome_sessao)}</b></small>", unsafe_allow_html=True)
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     if st.button("Sair", use_container_width=True, key="logout_btn"):
         for k in ["_utah_authenticated","_utah_email","_utah_nome","_utah_is_admin"]:
@@ -1381,10 +1393,11 @@ if "Admin" in modo:
 
     def _linha_usuario(u, acao_label, novo_status, cor):
         c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
-        c1.markdown(f"<span style='color:{UTAH_WHITE};font-weight:600'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
-        c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
+        # _html.escape previne XSS: nome/email vêm do banco e podem conter HTML malicioso
+        c1.markdown(f"<span style='color:{UTAH_WHITE};font-weight:600'>{_html.escape(u.get('nome') or '—')}</span>", unsafe_allow_html=True)
+        c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{_html.escape(u.get('email') or '')}</span>", unsafe_allow_html=True)
         criado = (u.get("criado_em","")[:10]) if u.get("criado_em") else "—"
-        c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{criado}</span>", unsafe_allow_html=True)
+        c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{_html.escape(criado)}</span>", unsafe_allow_html=True)
         if c4.button(acao_label, key=f"btn_{u['id']}_{novo_status}",
                      type="primary" if novo_status == "aprovado" else "secondary"):
             if _supa_atualizar_status(u["id"], novo_status):
@@ -1419,9 +1432,9 @@ if "Admin" in modo:
             st.markdown(f"<span style='color:{UTAH_SILVER};font-size:.82rem'>{len(aprovados)} usuário(s) com acesso ativo</span>", unsafe_allow_html=True)
             for u in aprovados:
                 c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
-                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
-                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
-                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{(u.get('criado_em','')[:10])}</span>", unsafe_allow_html=True)
+                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{_html.escape(u.get('nome') or '—')}</span>", unsafe_allow_html=True)
+                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{_html.escape(u.get('email') or '')}</span>", unsafe_allow_html=True)
+                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{_html.escape((u.get('criado_em') or '')[:10])}</span>", unsafe_allow_html=True)
                 if c4.button("Revogar", key=f"rev_{u['id']}"):
                     if _supa_atualizar_status(u["id"], "rejeitado"):
                         st.cache_data.clear(); st.rerun()
@@ -1433,9 +1446,9 @@ if "Admin" in modo:
         else:
             for u in rejeitados:
                 c1, c2, c3, c4 = st.columns([2.5, 2.5, 1.5, 1.2])
-                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{u.get('nome','—')}</span>", unsafe_allow_html=True)
-                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{u.get('email','')}</span>", unsafe_allow_html=True)
-                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{(u.get('criado_em','')[:10])}</span>", unsafe_allow_html=True)
+                c1.markdown(f"<span style='color:{UTAH_WHITE}'>{_html.escape(u.get('nome') or '—')}</span>", unsafe_allow_html=True)
+                c2.markdown(f"<span style='color:{UTAH_SILVER};font-size:.85rem'>{_html.escape(u.get('email') or '')}</span>", unsafe_allow_html=True)
+                c3.markdown(f"<span style='color:#64748b;font-size:.8rem'>{_html.escape((u.get('criado_em') or '')[:10])}</span>", unsafe_allow_html=True)
                 if c4.button("Re-aprovar", key=f"reap_{u['id']}"):
                     if _supa_atualizar_status(u["id"], "aprovado"):
                         st.cache_data.clear(); st.rerun()

@@ -2,6 +2,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import base64
+import hmac
+import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -23,6 +25,75 @@ def _page_icon():
 st.set_page_config(page_title="Utah Research", page_icon=_page_icon(), layout="wide", initial_sidebar_state="expanded")
 
 BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTENTICAÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
+_UTAH_NAVY   = "#1e2d4a"
+_UTAH_GOLD   = "#c9a84c"
+_UTAH_NAVY2  = "#2d3f63"
+_UTAH_WHITE  = "#f8fafc"
+_UTAH_SILVER = "#94a3b8"
+
+def _verify_credentials(username: str, password: str) -> bool:
+    """Verifica usuário/senha contra st.secrets['users']."""
+    users = dict(st.secrets.get("users", {}))
+    if not users:
+        return False
+    stored = users.get(username.lower().strip(), "")
+    if not stored:
+        return False
+    return hmac.compare_digest(str(stored), str(password))
+
+def _auth_gate():
+    """Bloqueia o app até o usuário autenticar. Chame logo após set_page_config."""
+    if st.session_state.get("_utah_authenticated"):
+        return  # já autenticado nesta sessão
+
+    # ── CSS da tela de login ──────────────────────────────────────────────────
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&display=swap');
+    html, body, [class*="css"] {{ background-color: {_UTAH_NAVY}; font-family: 'Inter', sans-serif; }}
+    .login-wrap {{ max-width: 420px; margin: 80px auto 0; padding: 0 16px; }}
+    .login-card {{ background: linear-gradient(160deg, #0f1c33, {_UTAH_NAVY2});
+        border: 1px solid {_UTAH_NAVY2}; border-top: 3px solid {_UTAH_GOLD};
+        border-radius: 16px; padding: 40px 36px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }}
+    .login-title {{ font-family:'Playfair Display',serif; color:{_UTAH_WHITE};
+        font-size:1.65rem; font-weight:700; text-align:center; margin:0 0 4px; }}
+    .login-sub {{ color:{_UTAH_SILVER}; font-size:.85rem; text-align:center; margin:0 0 28px; }}
+    .login-divider {{ width:40px; height:2px; background:{_UTAH_GOLD};
+        margin:0 auto 28px; border-radius:2px; }}
+    </style>
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-title">Utah Research</div>
+        <div class="login-divider"></div>
+        <div class="login-sub">Acesso restrito · Utah Investimentos</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Formulário centrado dentro da mesma área visual
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        with st.form("utah_login", clear_on_submit=False):
+            username = st.text_input("Usuário", placeholder="seu.login")
+            password = st.text_input("Senha",   placeholder="••••••••", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True)
+
+        if submitted:
+            if _verify_credentials(username, password):
+                st.session_state["_utah_authenticated"] = True
+                st.session_state["_utah_username"]      = username.lower().strip()
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos. Tente novamente.")
+
+    st.stop()
+
+_auth_gate()
 
 import indicadores
 
@@ -581,6 +652,13 @@ with st.sidebar:
     st.markdown("<hr style='border-color:#2d3f63;margin:0 0 16px'>", unsafe_allow_html=True)
     modo = st.radio("", ["Início", "Empresa", "Setor", "Fundos", "Indicadores"], label_visibility="collapsed")
     st.markdown("<hr style='border-color:#2d3f63;margin:16px 0 12px'>", unsafe_allow_html=True)
+    _uname = st.session_state.get("_utah_username", "")
+    if _uname:
+        st.markdown(f"<small style='color:#94a3b8'>Logado como <b style='color:#c9a84c'>{_uname}</b></small>", unsafe_allow_html=True)
+    if st.button("Sair", use_container_width=True, key="logout_btn"):
+        st.session_state["_utah_authenticated"] = False
+        st.session_state["_utah_username"]      = ""
+        st.rerun()
     st.markdown("<small style='color:#64748b'>Dados: Yahoo Finance · BCB<br>Cotações com delay de 15 min</small>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════

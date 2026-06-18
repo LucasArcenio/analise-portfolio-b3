@@ -39,6 +39,7 @@ _UTAH_SILVER = "#94a3b8"
 _SUPA_URL    = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
 _SUPA_KEY    = str(st.secrets.get("SUPABASE_KEY", ""))
 _ADMIN_EMAIL = str(st.secrets.get("ADMIN_EMAIL", "")).lower().strip()
+_ADMIN_PW    = str(st.secrets.get("ADMIN_PASSWORD", ""))
 
 def _hash_pw(pw: str) -> str:
     # PBKDF2-HMAC-SHA256, 260k iterations (NIST SP 800-132).
@@ -87,22 +88,24 @@ _MSG_LOGIN_INVALIDO = "E-mail ou senha incorretos."  # mensagem genérica (fix #
 def _login(email: str, password: str):
     """Retorna (True, nome) ou (False, mensagem_erro)."""
     email = email.lower().strip()
-    # Fallback: secrets estáticos (para o admin sem Supabase configurado)
-    fallback_users = dict(st.secrets.get("users", {}))
-    if fallback_users:
-        stored = fallback_users.get(email, "")
-        if stored and hmac.compare_digest(str(stored), str(password)):
-            return True, email.split("@")[0]
+
+    # Admin direto por ADMIN_EMAIL + ADMIN_PASSWORD nos secrets
+    # Funciona mesmo sem Supabase configurado
+    if _ADMIN_EMAIL and email == _ADMIN_EMAIL and _ADMIN_PW:
+        if hmac.compare_digest(_ADMIN_PW, password):
+            return True, "Admin"
+        return False, _MSG_LOGIN_INVALIDO
+
+    # Supabase: demais usuários cadastrados e aprovados
     if not _SUPA_URL:
-        return False, "Serviço de autenticação não configurado."
+        return False, "Serviço de autenticação não configurado. Fale com a Utah."
     try:
-        # Fix #2: params dict — requests URL-encoda o email automaticamente
         r = requests.get(
             f"{_SUPA_URL}/rest/v1/usuarios",
             params={"email": f"eq.{email}", "select": "nome,senha_hash,status"},
             headers=_supa_headers(), timeout=10)
         if r.status_code != 200 or not r.json():
-            return False, _MSG_LOGIN_INVALIDO  # fix #4: não revela se email existe
+            return False, _MSG_LOGIN_INVALIDO
         u = r.json()[0]
         if u["status"] == "pendente":
             return False, "Cadastro aguardando aprovação. Aguarde o contato da Utah."
@@ -110,7 +113,7 @@ def _login(email: str, password: str):
             return False, "Acesso negado. Entre em contato com a Utah Investimentos."
         if hmac.compare_digest(u.get("senha_hash", ""), _hash_pw(password)):
             return True, u.get("nome") or email.split("@")[0]
-        return False, _MSG_LOGIN_INVALIDO  # fix #4: mesma mensagem para senha errada
+        return False, _MSG_LOGIN_INVALIDO
     except Exception as e:
         return False, f"Erro de conexão: {e}"
 
